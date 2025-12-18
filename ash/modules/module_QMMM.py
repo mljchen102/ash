@@ -363,10 +363,19 @@ class QMMMTheory:
         #Creating dictionary for each MM1 atom and its connected atoms: MM2-4
         self.MMboundarydict={}
         for (QM1atom,MM1atom) in self.boundaryatoms.items():
-            connatoms = ash.modules.module_coords.get_connected_atoms(self.coords, self.elems, scale,tol, MM1atom)
-            #Deleting QM-atom from connatoms list
-            connatoms.remove(QM1atom)
-            self.MMboundarydict[MM1atom] = connatoms
+            if isinstance(MM1atom,list):
+                for mat in MM1atom:
+                    connatoms = ash.modules.module_coords.get_connected_atoms(self.coords, self.elems, scale,tol, mat)
+                    #Deleting QM-atom from connatoms list
+                    connatoms.remove(QM1atom)
+                    self.MMboundarydict[mat] = connatoms
+            # OLD: should never apply anymore, we always have a list
+            # TODO: delete
+            else:
+                connatoms = ash.modules.module_coords.get_connected_atoms(self.coords, self.elems, scale,tol, MM1atom)
+                # Deleting QM-atom from connatoms list
+                connatoms.remove(QM1atom)
+                self.MMboundarydict[MM1atom] = connatoms
 
         # Used by ShiftMMCharges
         self.MMboundary_indices = list(self.MMboundarydict.keys())
@@ -1293,7 +1302,7 @@ class QMMMTheory:
             #LINKATOM FORCE PROJECTION
             if self.linkatoms is True:
                 CheckpointTime = time.time()
-
+                #print("self.linkatoms_dict:", self.linkatoms_dict)
                 for pair in sorted(self.linkatoms_dict.keys()):
                     #Grabbing linkatom data
                     linkatomindex=self.linkatom_indices.pop(0)

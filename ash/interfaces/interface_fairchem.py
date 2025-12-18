@@ -66,6 +66,8 @@ class FairchemTheory():
             self.calc = FAIRChemCalculator(predictor, task_name=self.task_name, seed=self.seed)
         elif self.model_file is not None:
             print("Model-file set:", self.model_file)
+            # TODO: can we fix
+            print("Warning: single-atom systems do not work with this approach")
             self.calc = FAIRChemCalculator.from_model_checkpoint(self.model_file,
                                                             task_name=self.task_name, device=self.device,
                                                             seed=self.seed)

@@ -3185,16 +3185,18 @@ def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomli
 
         if len(boundaryatom) > 1:
             print(BC.FAIL,
-                  "Problem. Found more than 1 boundaryatom for QM-atom {} . This is not allowed".format(qmatom),
+                  "Warning. Found more than 1 boundaryatom for QM-atom {} . This is considered unusual".format(qmatom),
                   BC.END)
             print("This typically either happens when your QM-region is badly defined or a QM-atom is clashing with an MM atom")
             print("QM atom : ", qmatom)
             print("MM Boundaryatoms (connected to QM-atom based on distance) : ", boundaryatom)
-            print("Please define the QM-region so that only 1 linkatom would be required.")
+            #print("Please define the QM-region so that only 1 linkatom would be required.")
             print("MM Boundary atom coordinates (for debugging):")
             for b in boundaryatom:
                 print(f"{b} {elems[b]} {coords[b][0]} {coords[b][1]} {coords[b][2]}")
-            ashexit()
+            # Adding to dict
+            qm_mm_boundary_dict[qmatom] = boundaryatom
+            #ashexit()
         elif len(boundaryatom) == 1:
 
             # Warn if QM-MM boundary is not a plain-vanilla C-C bond
@@ -3210,7 +3212,7 @@ def get_boundary_atoms(qmatoms, coords, elems, scale, tol, excludeboundaryatomli
                     print(BC.WARNING, "To override exit, add: unusualboundary=True  to QMMMTheory object ", BC.END)
                     ashexit()
             # Adding to dict
-            qm_mm_boundary_dict[qmatom] = boundaryatom[0]
+            qm_mm_boundary_dict[qmatom] = [boundaryatom[0]]
     print("QM-MM boundary dictionary:", qm_mm_boundary_dict)
     print_time_rel(timeA, modulename="get_boundary_atoms")
     return qm_mm_boundary_dict
@@ -3234,7 +3236,7 @@ def get_linkatom_positions(qm_mm_boundary_dict, qmatoms, coords, elems, linkatom
         print("linkatom_simple_distance was set by user:", linkatom_simple_distance)
     #Dict of linkatom distances for different elements
     linkdistances_dict = {('C', 'H'): 1.09, ('O', 'H'): 0.98, ('N', 'H'): 0.99}
-    print("Linkdatom distance dictionary:", linkdistances_dict)
+    print("Linkatom distance dictionary:", linkdistances_dict)
     # If dictionary of linkatom-distances provided then use that instead
     if linkatom_method == 'ratio':
         if linkatom_ratio == 'Auto' and bondpairs_eq_dict is None:
@@ -3246,50 +3248,52 @@ def get_linkatom_positions(qm_mm_boundary_dict, qmatoms, coords, elems, linkatom
     print("qm_mm_boundary_dict:", qm_mm_boundary_dict)
     # Get coordinates for QMX and MMX pair. Create new L coordinate that has a modified distance to QMX
     linkatoms_dict = {}
+    # Looping over QM-MM boundaries
     for dict_item in qm_mm_boundary_dict.items():
-        qmatom_coords = np.array(coords[dict_item[0]])
-        mmatom_coords = np.array(coords[dict_item[1]])
-
-        #Determine linkatom distance
-        if linkatom_method == 'ratio':
-            #print("Linkatom method: ratio")
-            if linkatom_ratio == 'Auto':
-                print("Automatic ratio. Determining ratio based on dict of equilibrium distances")
-                #TODO
-                R_eq_QM_H = bondpairs_eq_dict[(elems[dict_item[0]], linkatom_type)]
-                R_eq_QM_MM = bondpairs_eq_dict[(elems[dict_item[0]], elems[dict_item[1]])]
-                print("R_eq_QM_H:", R_eq_QM_H)
-                print("R_eq_QM_MM:", R_eq_QM_MM)
-                linkatom_ratio = R_eq_QM_H / R_eq_QM_MM
-                print("Determined ratio:", linkatom_ratio)
-                print("not yet ready")
-                ashexit()
-            r_QM1_MM1 = distance(qmatom_coords, mmatom_coords)
-            # See https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9314059/
-            linkatom_coords = linkatom_ratio *(mmatom_coords - qmatom_coords) + qmatom_coords
-            #linkatom_distance =  r_QM1_MM1 * (bondpairs_eq_dict[(elems[dict_item[0]], 'H')] / bondpairs_eq_dict[(elems[dict_item[0]], elems[dict_item[1]])])
-            linkatom_distance = distance(qmatom_coords, linkatom_coords)
-            print(f"Linkatom distance (QM1-L) determined to be: {linkatom_distance} (using ratio {linkatom_ratio})")
-        elif linkatom_method == 'simple':
-            #print("Linkatom method: simple")
-            if linkatom_simple_distance is None:
-                #print("linkatom_simple_distance not set. Getting standard distance from dictionary for element:", elems[dict_item[0]])
-                #Getting from dict
-                linkatom_distance = linkdistances_dict[(elems[dict_item[0]], linkatom_type)]
+        qmatom=dict_item[0]
+        # Looping over MM-atoms in boundary (i.e. we can have a MM1-QM1-MM1 situation e.g. requiring multiple linkatoms)
+        for mmatom in dict_item[1]:
+            qmatom_coords = np.array(coords[qmatom])
+            mmatom_coords = np.array(coords[mmatom])
+            #Determine linkatom distance
+            if linkatom_method == 'ratio':
+                #print("Linkatom method: ratio")
+                if linkatom_ratio == 'Auto':
+                    print("Automatic ratio. Determining ratio based on dict of equilibrium distances")
+                    #TODO
+                    R_eq_QM_H = bondpairs_eq_dict[(elems[qmatom], linkatom_type)]
+                    R_eq_QM_MM = bondpairs_eq_dict[(elems[qmatom], elems[mmatom])]
+                    print("R_eq_QM_H:", R_eq_QM_H)
+                    print("R_eq_QM_MM:", R_eq_QM_MM)
+                    linkatom_ratio = R_eq_QM_H / R_eq_QM_MM
+                    print("Determined ratio:", linkatom_ratio)
+                    print("not yet ready")
+                    ashexit()
+                r_QM1_MM1 = distance(qmatom_coords, mmatom_coords)
+                # See https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9314059/
+                linkatom_coords = linkatom_ratio *(mmatom_coords - qmatom_coords) + qmatom_coords
+                #linkatom_distance =  r_QM1_MM1 * (bondpairs_eq_dict[(elems[dict_item[0]], 'H')] / bondpairs_eq_dict[(elems[dict_item[0]], elems[dict_item[1]])])
+                linkatom_distance = distance(qmatom_coords, linkatom_coords)
+                print(f"Linkatom distance (QM1-L) determined to be: {linkatom_distance} (using ratio {linkatom_ratio})")
+            elif linkatom_method == 'simple':
+                #print("Linkatom method: simple")
+                if linkatom_simple_distance is None:
+                    #print("linkatom_simple_distance not set. Getting standard distance from dictionary for element:", elems[dict_item[0]])
+                    #Getting from dict
+                    linkatom_distance = linkdistances_dict[(elems[qmatom], linkatom_type)]
+                else:
+                    #print("linkatom_simple_distance was set by user:", linkatom_simple_distance)
+                    #Getting from user
+                    linkatom_distance = linkatom_simple_distance
+                print("Linkatom distance (QM1-L) is:", linkatom_distance)
+                #Determining coords
+                linkatom_coords = list(qmatom_coords + (mmatom_coords - qmatom_coords) * (
+                            linkatom_distance / distance(qmatom_coords, mmatom_coords)))
             else:
-                #print("linkatom_simple_distance was set by user:", linkatom_simple_distance)
-                #Getting from user
-                linkatom_distance = linkatom_simple_distance
-            print("Linkatom distance (QM1-L) is:", linkatom_distance)
-            #Determining coords
-            linkatom_coords = list(qmatom_coords + (mmatom_coords - qmatom_coords) * (
-                        linkatom_distance / distance(qmatom_coords, mmatom_coords)))
-        else:
-            print("Invalid linkatom_method. Exiting.")
-            ashexit()
-        
-        linkatoms_dict[(dict_item[0], dict_item[1])] = linkatom_coords
-    #print_time_rel(timeA, modulename="get_linkatom_positions")
+                print("Invalid linkatom_method. Exiting.")
+                ashexit()
+            
+            linkatoms_dict[(qmatom, mmatom)] = linkatom_coords
     return linkatoms_dict
 
 
