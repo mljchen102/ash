@@ -1497,16 +1497,10 @@ class OpenMMTheory:
 
     # This removes interactions between particles in a region (e.g. QM-QM or frozen-frozen pairs)
     # Give list of atom indices for which we will remove all pairs
-    # Todo: Way too slow to do for big list of e.g. frozen atoms but works well for qmatoms list size
-    # Alternative: Remove force interaction and then add in the interaction of active atoms to frozen atoms
-    # should be reasonably fast
-    # https://github.com/openmm/openmm/issues/2124
-    # https://github.com/openmm/openmm/issues/1696
     def addexceptions(self, atomlist):
         print("atomlist:",atomlist)
         import openmm
         timeA = time.time()
-        import itertools
         print("Add exceptions/exclusions. Removing i-j interactions for list:", len(atomlist), "atoms")
 
         numexceptions = 0
@@ -1517,8 +1511,8 @@ class OpenMMTheory:
             printdebug("force:", force)
             if isinstance(force, openmm.NonbondedForce):
                 print("Case Nonbondedforce. Adding Exception for ij pair.")
-                for i in atomlist:
-                    for j in atomlist:
+                for idx_i, i in enumerate(atomlist):
+                    for j in atomlist[idx_i + 1:]:
                         printdebug("i,j : {} and {} ".format(i, j))
                         force.addException(i, j, 0, 0, 0, replace=True)
 
