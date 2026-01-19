@@ -1498,7 +1498,6 @@ class OpenMMTheory:
     # This removes interactions between particles in a region (e.g. QM-QM or frozen-frozen pairs)
     # Give list of atom indices for which we will remove all pairs
     def addexceptions(self, atomlist):
-        print("atomlist:",atomlist)
         import openmm
         timeA = time.time()
         print("Add exceptions/exclusions. Removing i-j interactions for list:", len(atomlist), "atoms")
@@ -1534,8 +1533,10 @@ class OpenMMTheory:
                 #Using set of frozensets to get unique pairs
                 all_exclusions = [force.getExclusionParticles(exclindex) for exclindex in range(0,force.getNumExclusions()) ]
                 existing_exclusions = {frozenset(excl) for excl in all_exclusions}
-                for k in atomlist:
-                    for l in atomlist:
+                #for k in atomlist:
+                #    for l in atomlist:
+                for idx_k, k in enumerate(atomlist):
+                    for l in atomlist[idx_k + 1:]:
                         if not frozenset((k,l)) in existing_exclusions:
                             existing_exclusions.add(frozenset([k,l]))
                             force.addExclusion(k, l)
