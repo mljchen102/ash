@@ -1447,6 +1447,10 @@ class OpenMMTheory:
         for i in frozen_atoms:
             self.system.setParticleMass(i, 0 * openmm.unit.daltons)
 
+        # Also adding exceptions to nonbonded force to avoid interactions between frozen atoms (causes problems otherwise in NPT)
+        print("Also adding exceptions to nonbonded force for frozen atoms to avoid interactions between them (avoids problems in NPT).")
+        self.addexceptions(frozen_atoms)
+
         #Update list of current masses
         self.system_masses = [self.system.getParticleMass(i)._value for i in self.allatoms]
 
