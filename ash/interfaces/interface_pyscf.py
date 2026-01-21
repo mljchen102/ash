@@ -2984,6 +2984,7 @@ def pyscf_pointcharge_gradient(mol,mm_coords,mm_charges,dm, GPU=False):
 
 #GPU
     if GPU is True:
+        dmf=dm
         import cupy
         einsumfunc = cupy.einsum
         linalg_norm_func=cupy.linalg.norm
