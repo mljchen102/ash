@@ -2897,7 +2897,11 @@ class PySCFTheory:
                 if self.printlevel >1:
                     print("Calculating regular SCF gradient")
                 checkpoint=time.time()
-                g = self.mf.nuc_grad_method()
+                if self.platform == "GPU":
+                    print("Calculating gradient on GPU")
+                    g = self.mf.Gradients()
+                else:
+                    g = self.mf.nuc_grad_method()
                 self.gradient = g.kernel()
                 print_time_rel(checkpoint, modulename='pyscf_gradient', moduleindex=2)
 
