@@ -3698,7 +3698,7 @@ class OpenMM_MDclass:
             # print("after barostat added")
 
             self.integrator = "LangevinMiddleIntegrator"
-            print("Barostat requires using integrator:", integrator)
+            print("Barostat requires using integrator:", self.integrator)
             self.openmmobject.set_simulation_parameters(timestep=self.timestep, temperature=self.temperature,
                                                         integrator=self.integrator, coupling_frequency=self.coupling_frequency)
         elif anderson_thermostat is True:

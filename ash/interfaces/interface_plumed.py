@@ -121,7 +121,7 @@ def plumed_MTD_analyze(path_to_plumed=None, Plot_To_Screen=False, CV1_type=None,
         print("Problem importing matplotlib (make sure it is installed in your environment). Plotting is not possible but continuing.")
 
     path_to_plumed=check_program_location(path_to_plumed,'path_to_plumed','plumed')
-
+    print("Path to plumed:", path_to_plumed)
     ###############################
     # USER SETTINGS
     ###############################
@@ -240,7 +240,7 @@ def plumed_MTD_analyze(path_to_plumed=None, Plot_To_Screen=False, CV1_type=None,
 
     # The plumed sum_hills command that is run.
     print("")
-    if MultipleWalker==True:
+    if MultipleWalker is True:
         #Removing old HILLS.ALL if present
         try:
             os.remove('HILLS.ALL')
@@ -266,28 +266,28 @@ def plumed_MTD_analyze(path_to_plumed=None, Plot_To_Screen=False, CV1_type=None,
         print("")
         #RUN PLUMED_ASH OBJECT function
         if CV1_grid_limits is None:
-            call_plumed_sum_hills(path_to_plumed,"HILLS.ALL",CVnum)
+            call_plumed_sum_hills(path_to_plumed=path_to_plumed,hillsfile="HILLS.ALL",CVnum)
         else:
             #Changing input unit from Angstrom to nm or degree to radian
             if CVnum == 1:
-                call_plumed_sum_hills(path_to_plumed,'HILLS.ALL',ndim=CVnum, ming=[CV1_grid_limits[0]/ CV1_scaling], maxg=[CV1_grid_limits[1]/ CV1_scaling])
+                call_plumed_sum_hills(path_to_plumed=path_to_plumed,hillsfile='HILLS.ALL',ndim=CVnum, ming=[CV1_grid_limits[0]/ CV1_scaling], maxg=[CV1_grid_limits[1]/ CV1_scaling])
             elif CVnum == 2:
                 #Changing input unit from Angstrom to nm or degree to radian
-                call_plumed_sum_hills(path_to_plumed,'HILLS.ALL',ndim=CVnum, ming=[CV1_grid_limits[0]/ CV1_scaling,CV2_grid_limits[0]/ CV2_scaling],
+                call_plumed_sum_hills(path_to_plumed=path_to_plumed,hillsfile='HILLS.ALL',ndim=CVnum, ming=[CV1_grid_limits[0]/ CV1_scaling,CV2_grid_limits[0]/ CV2_scaling],
                      maxg=[CV1_grid_limits[1]/ CV1_scaling,CV2_grid_limits[1]/ CV2_scaling])
 
     else:
         print("Calling call_plumed_sum_hills")
         # call_plumed_sum_hills(path_to_plumed,"HILLS")
         if CV1_grid_limits == None:
-            call_plumed_sum_hills(path_to_plumed,"HILLS",CVnum)
+            call_plumed_sum_hills(path_to_plumed=path_to_plumed,hillsfile="HILLS",CVnum)
         else:
             #Changing input unit from Angstrom to nm or degree to radian
             if CVnum == 1:
-                call_plumed_sum_hills(path_to_plumed,'HILLS',ndim=CVnum, ming=[CV1_grid_limits[0]/ CV1_scaling], maxg=[CV1_grid_limits[1]/ CV1_scaling])
+                call_plumed_sum_hills(path_to_plumed=path_to_plumed,hillsfile='HILLS',ndim=CVnum, ming=[CV1_grid_limits[0]/ CV1_scaling], maxg=[CV1_grid_limits[1]/ CV1_scaling])
             elif CVnum == 2:
                 #Changing input unit from Angstrom to nm or degree to radian
-                call_plumed_sum_hills(path_to_plumed,'HILLS',ndim=CVnum, ming=[CV1_grid_limits[0]/ CV1_scaling,CV2_grid_limits[0]/ CV2_scaling], maxg=[CV1_grid_limits[1]/ CV1_scaling,CV2_grid_limits[1]/ CV2_scaling])
+                call_plumed_sum_hills(path_to_plumed=path_to_plumed,hillsfile='HILLS',ndim=CVnum, ming=[CV1_grid_limits[0]/ CV1_scaling,CV2_grid_limits[0]/ CV2_scaling], maxg=[CV1_grid_limits[1]/ CV1_scaling,CV2_grid_limits[1]/ CV2_scaling])
         HILLSFILELIST=['HILLS']
         # Single COLVAR file
         COLVARFILELIST=['COLVAR']
