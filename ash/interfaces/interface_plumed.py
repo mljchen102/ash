@@ -399,6 +399,7 @@ def plumed_MTD_analyze(path_to_plumed=None, Plot_To_Screen=False, CV1_type=None,
                                 colvar_value.append(float(line.split()[1]))
                                 biaspot_value.append(float(line.split()[2]))
                     elif CVnum == 2:
+                        print("line:", line)
                         if number_of_fields >= 4:
                             if len(line) > 10:
                                 time.append(float(line.split()[0]))
