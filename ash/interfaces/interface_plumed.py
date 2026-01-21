@@ -266,7 +266,7 @@ def plumed_MTD_analyze(path_to_plumed=None, Plot_To_Screen=False, CV1_type=None,
         print("")
         #RUN PLUMED_ASH OBJECT function
         if CV1_grid_limits is None:
-            call_plumed_sum_hills(path_to_plumed=path_to_plumed,hillsfile="HILLS.ALL",CVnum)
+            call_plumed_sum_hills(path_to_plumed=path_to_plumed,hillsfile="HILLS.ALL",ndim=CVnum)
         else:
             #Changing input unit from Angstrom to nm or degree to radian
             if CVnum == 1:
@@ -280,7 +280,7 @@ def plumed_MTD_analyze(path_to_plumed=None, Plot_To_Screen=False, CV1_type=None,
         print("Calling call_plumed_sum_hills")
         # call_plumed_sum_hills(path_to_plumed,"HILLS")
         if CV1_grid_limits == None:
-            call_plumed_sum_hills(path_to_plumed=path_to_plumed,hillsfile="HILLS",CVnum)
+            call_plumed_sum_hills(path_to_plumed=path_to_plumed,hillsfile="HILLS",ndim=CVnum)
         else:
             #Changing input unit from Angstrom to nm or degree to radian
             if CVnum == 1:
