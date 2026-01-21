@@ -2979,7 +2979,6 @@ class PySCFTheory:
 #Based on https://github.com/pyscf/pyscf/blob/master/examples/qmmm/30-force_on_mm_particles.py
 #Uses pyscf mol and MM coords and charges and provided density matrix to get pointcharge gradient
 def pyscf_pointcharge_gradient(mol,mm_coords,mm_charges,dm, GPU=False):
-    import gpu4pyscf
     time0=time.time()
 
 #GPU

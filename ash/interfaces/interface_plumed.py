@@ -457,6 +457,7 @@ def plumed_MTD_analyze(path_to_plumed=None, Plot_To_Screen=False, CV1_type=None,
         #Possible energy conversion
         biaspot_value_kcal=np.array(biaspot_value)/energy_scaling
 
+        print("final_rc2:", final_rc2)
 
         biaspot_value_kcal_list.append(biaspot_value_kcal)
         time_list.append(time)
