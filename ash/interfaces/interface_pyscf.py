@@ -3001,9 +3001,9 @@ def pyscf_pointcharge_gradient(mol,mm_coords,mm_charges,dm, GPU=False):
         array_mod=cupy.asarray
 #CPU
     else:
-        if isinstance(dm, gpu4pyscf.lib.cupy_helper.CPArrayWithTag):
-            print("Converting dm to CPU (as requested)")
-            dm = dm.get()
+        #if isinstance(dm, gpu4pyscf.lib.cupy_helper.CPArrayWithTag):
+        #    print("Converting dm to CPU (as requested)")
+        #    dm = dm.get()
         if dm.shape[0] == 2:
             dmf = np.array(dm[0] + dm[1]) #unrestricted
         else:
