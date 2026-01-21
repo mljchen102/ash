@@ -2282,14 +2282,17 @@ class PySCFTheory:
             if self.platform == 'GPU':
                 print("QM/MM embedding for GPU. Adding pointcharges via create_mm_mol from gpu4pyscf")
 
-                from gpu4pyscf.qmmm.pbc import mm_mole
-                from gpu4pyscf.qmmm.pbc.itrf import add_mm_charges, qmmm_for_scf
-
                 if self.PBC_lattice_vectors is None:
-                    print("PBC lattice vectors not set, needed for QM/MM with GPU4pyscf. Exiting")
-                    ashexit()
+                    print("Note: PBC lattice vectors not set, GPU4pyscf will do non-PBC QM/MM")
+                    from gpu4pyscf.qmmm import mm_mole
+                    from gpu4pyscf.qmmm.itrf import add_mm_charges, qmmm_for_scf
+                    mm_mol = mm_mole.create_mm_mol(MM_coords, MMcharges, radii=self.radii)
+                else:
+                    print(f"Note: PBC lattice vectors are set: {self.PBC_lattice_vectors} GPU4pyscf will do PBC QM/MM")
+                    from gpu4pyscf.qmmm.pbc import mm_mole
+                    from gpu4pyscf.qmmm.pbc.itrf import add_mm_charges, qmmm_for_scf
+                    mm_mol = mm_mole.create_mm_mol(MM_coords, self.PBC_lattice_vectors, MMcharges, radii=self.radii, rcut_ewald=self.rcut_ewald, rcut_hcore=self.rcut_hcore)
 
-                mm_mol = mm_mole.create_mm_mol(MM_coords, self.PBC_lattice_vectors, MMcharges, radii=self.radii, rcut_ewald=self.rcut_ewald, rcut_hcore=self.rcut_hcore)
                 self.mf = qmmm_for_scf(self.mf, mm_mol)
                 #pyscf.qmmm.itrf.add_mm_charges(self.mf, MM_coords, MMcharges)
             else:
