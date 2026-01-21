@@ -2980,11 +2980,12 @@ class PySCFTheory:
 #Uses pyscf mol and MM coords and charges and provided density matrix to get pointcharge gradient
 def pyscf_pointcharge_gradient(mol,mm_coords,mm_charges,dm, GPU=False):
     time0=time.time()
+    print("dm type:", type(dm))
     #Making sure density matrix is as it should
     if dm.shape[0] == 2:
         dmf = np.array(dm[0] + dm[1]) #unrestricted
     else:
-        dmf=np.array(dm)
+        dmf=np.array(dm.get())
 
 #GPU
     if GPU is True:
