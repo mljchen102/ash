@@ -2979,13 +2979,8 @@ class PySCFTheory:
 #Based on https://github.com/pyscf/pyscf/blob/master/examples/qmmm/30-force_on_mm_particles.py
 #Uses pyscf mol and MM coords and charges and provided density matrix to get pointcharge gradient
 def pyscf_pointcharge_gradient(mol,mm_coords,mm_charges,dm, GPU=False):
+    import gpu4pyscf
     time0=time.time()
-    print("dm type:", type(dm))
-    #Making sure density matrix is as it should
-    if dm.shape[0] == 2:
-        dmf = np.array(dm[0] + dm[1]) #unrestricted
-    else:
-        dmf=np.array(dm.get())
 
 #GPU
     if GPU is True:
@@ -3001,6 +2996,13 @@ def pyscf_pointcharge_gradient(mol,mm_coords,mm_charges,dm, GPU=False):
         array_mod=cupy.asarray
 #CPU
     else:
+        if isinstance(dm, gpu4pyscf.lib.cupy_helper.CPArrayWithTag):
+            print("Converting dm to CPU (as requested)")
+            dm = dm.get()
+        if dm.shape[0] == 2:
+            dmf = np.array(dm[0] + dm[1]) #unrestricted
+        else:
+            dmf=np.array(dm)
         def dummy(f): return f
         array_mod=dummy
         einsumfunc=np.einsum
