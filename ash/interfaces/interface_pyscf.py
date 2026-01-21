@@ -2985,7 +2985,7 @@ def pyscf_pointcharge_gradient(mol,mm_coords,mm_charges,dm, GPU=False):
 #GPU
     if GPU is True:
         if dm.shape[0] == 2:
-            dmf = np.array(dm[0] + dm[1]) #unrestricted
+            dmf = cupy.asarray(dm[0] + dm[1]) #unrestricted
         else:
             dmf=dm
         import cupy
