@@ -2902,7 +2902,9 @@ class PySCFTheory:
                     g = self.mf.Gradients()
                 else:
                     g = self.mf.nuc_grad_method()
+                    print("g object:", g)
                 self.gradient = g.kernel()
+                print("Debug: QM self.gradient:", self.gradient)
                 print_time_rel(checkpoint, modulename='pyscf_gradient', moduleindex=2)
 
             #Applying dispersion gradient last
@@ -2916,14 +2918,22 @@ class PySCFTheory:
             if PC is True:
                 if self.printlevel >=1:
                     print("Calculating pointcharge gradient")
-                #Make density matrix
-                checkpoint=time.time()
-                dm = self.mf.make_rdm1()
-                print_time_rel(checkpoint, modulename='pySCF make_rdm1 for PC', moduleindex=2)
+
                 current_MM_coords_bohr = current_MM_coords*ash.constants.ang2bohr
                 checkpoint=time.time()
-                self.pcgrad = pyscf_pointcharge_gradient(self.mol,np.array(current_MM_coords_bohr),np.array(MMcharges),dm, GPU=self.GPU_pcgrad)
-                print_time_rel(checkpoint, modulename='pyscf_pointcharge_gradient', moduleindex=2)
+                new_way = True
+                if new_way:
+                    print("Using new way pointcharge gradient")
+                    g_mm_h1 = g.grad_hcore_mm(self.mf.make_rdm1()) 
+                    g_mm_nuc = g.grad_nuc_mm()
+                    self.pcgrad = g_mm_h1 + g_mm_nuc
+                else:
+                    #Make density matrix
+                    checkpoint=time.time()
+                    dm = self.mf.make_rdm1()
+                    print_time_rel(checkpoint, modulename='pySCF make_rdm1 for PC', moduleindex=2)
+                    self.pcgrad = pyscf_pointcharge_gradient(self.mol,np.array(current_MM_coords_bohr),np.array(MMcharges),dm, GPU=self.GPU_pcgrad)
+                    print_time_rel(checkpoint, modulename='pyscf_pointcharge_gradient', moduleindex=2)
 
             if self.printlevel >1:
                 print("Gradient calculation done")
