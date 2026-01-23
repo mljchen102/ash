@@ -2938,7 +2938,7 @@ class PySCFTheory:
                         
                     else:
                         print("ndim diff")
-                    g_mm_h1 = g.grad_hcore_mm(self.mf.make_rdm1()) 
+                    g_mm_h1 = g.grad_hcore_mm(dm) 
                     g_mm_nuc = g.grad_nuc_mm()
                     self.pcgrad = g_mm_h1 + g_mm_nuc
                 else:
