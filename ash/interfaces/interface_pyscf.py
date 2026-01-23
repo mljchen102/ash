@@ -2931,6 +2931,11 @@ class PySCFTheory:
                     print("dm ndim:", dm.ndim)
                     if dm.ndim == 2:
                         print("ndim 2")
+                    elif dm.ndim ==3:
+                        print("ndim 3")
+                        dm = dm[0]
+                        print("dm ndim:", dm.ndim)
+                        
                     else:
                         print("ndim diff")
                     g_mm_h1 = g.grad_hcore_mm(self.mf.make_rdm1()) 
