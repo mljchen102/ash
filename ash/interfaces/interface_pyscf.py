@@ -2924,6 +2924,15 @@ class PySCFTheory:
                 new_way = True
                 if new_way:
                     print("Using new way pointcharge gradient")
+                    dm = self.mf.make_rdm1()
+                    print("dm:", dm)
+                    print("dm type:", type(dm))
+                    print("dm shape:", dm.shape)
+                    print("dm ndim:", dm.ndim)
+                    if dm.ndim == 2:
+                        print("ndim 2")
+                    else:
+                        print("ndim diff")
                     g_mm_h1 = g.grad_hcore_mm(self.mf.make_rdm1()) 
                     g_mm_nuc = g.grad_nuc_mm()
                     self.pcgrad = g_mm_h1 + g_mm_nuc
