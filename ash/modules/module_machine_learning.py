@@ -17,7 +17,8 @@ from ash.modules.module_plotting import ASH_plot
 # Function to create ML training data given XYZ-files and 2 ASH theories
 def create_ML_training_data(xyz_dir=None, dcd_trajectory=None, xyz_trajectory=None, xyz_files=None, num_snapshots=None, random_snapshots=True,
                                 dcd_pdb_topology=None, nth_frame_in_traj=1, printlevel=2,
-                               theory_1=None, theory_2=None, charge=0, mult=1, Grad=True, runmode="serial", numcores=1):
+                               theory_1=None, theory_2=None, charge=0, mult=1, Grad=True, runmode="serial", numcores=1,
+                               energies_atoms_dict=None):
     print("-"*50)
     print("create_ML_training_data function")
     print("-"*50)
@@ -285,31 +286,35 @@ def create_ML_training_data(xyz_dir=None, dcd_trajectory=None, xyz_trajectory=No
                 gradients.append(gradient)
 
     # Calculate energies for atoms
-    energies_atoms_dict={}
-    unique_elems_per_frag = [list(set(frag.elems)) for frag in fragments]
-    unique_elems = list(set([j for i in unique_elems_per_frag for j in i]))
+    if energies_atoms_dict is None:
+        print("\nNow calculating isolated atom reference energies for each element in the training set")
+        energies_atoms_dict={}
+        unique_elems_per_frag = [list(set(frag.elems)) for frag in fragments]
+        unique_elems = list(set([j for i in unique_elems_per_frag for j in i]))
 
-    from dictionaries_lists import atom_spinmults
-    for uniq_el in unique_elems:
-        mult = atom_spinmults[uniq_el]
-        atomfrag = Fragment(atom=uniq_el, charge=0, mult=mult, printlevel=0)
-        print("Now running Theory 1 for atom:", uniq_el)
-        theory_1.printlevel=0
-        theory_1.cleanup()
-        result_1 = Singlepoint(theory=theory_1, fragment=atomfrag, printlevel=0,
-                               result_write_to_disk=False)
-        if delta is True:
-            theory_2.printlevel=0
-            # Running theory 2
-            print("Now running Theory 2 for atom:", uniq_el)
-            theory_2.cleanup()
-            result_2 = Singlepoint(theory=theory_2, fragment=atomfrag, printlevel=0,
-                                   result_write_to_disk=False)
-            # Delta energy
-            atomenergy = result_2.energy - result_1.energy
-        else:
-            atomenergy = result_1.energy
-        energies_atoms_dict[uniq_el] = atomenergy
+        from dictionaries_lists import atom_spinmults
+        for uniq_el in unique_elems:
+            mult = atom_spinmults[uniq_el]
+            atomfrag = Fragment(atom=uniq_el, charge=0, mult=mult, printlevel=0)
+            print("Now running Theory 1 for atom:", uniq_el)
+            theory_1.printlevel=0
+            theory_1.cleanup()
+            result_1 = Singlepoint(theory=theory_1, fragment=atomfrag, printlevel=0,
+                                result_write_to_disk=False)
+            if delta is True:
+                theory_2.printlevel=0
+                # Running theory 2
+                print("Now running Theory 2 for atom:", uniq_el)
+                theory_2.cleanup()
+                result_2 = Singlepoint(theory=theory_2, fragment=atomfrag, printlevel=0,
+                                    result_write_to_disk=False)
+                # Delta energy
+                atomenergy = result_2.energy - result_1.energy
+            else:
+                atomenergy = result_1.energy
+            energies_atoms_dict[uniq_el] = atomenergy
+    else:
+        print("\nUsing user-provided isolated atom reference energies for each element in the training set")
     print("\nAtomic energies:", energies_atoms_dict)
 
     ###########################################
