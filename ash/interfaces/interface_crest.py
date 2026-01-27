@@ -10,7 +10,8 @@ from ash.modules.module_coords import check_charge_mult, Fragment
 import ash.settings_ash
 
 # New crest interface that supports ASH levels of theory (Limitation: must be picklable)
-def new_call_crest(fragment=None, theory=None, crestdir=None, runtype="ancopt", numcores=1, charge=None, mult=None):
+def new_call_crest(fragment=None, theory=None, crestdir=None, runtype="imtd-gc", numcores=1, 
+                   charge=None, mult=None, energywindow=6.0):
     module_init_time=time.time()
 
     if fragment is None or theory is None:
@@ -57,7 +58,8 @@ print_gradient_in_ORCAformat(result.energy,result.gradient,"genericinp", extraba
 input = "struc.xyz"
 runtype="{runtype}"
 threads = {numcores}
-
+[cregen]
+ewin = {energywindow}
 [calculation]
 elog="energies.log"
 
@@ -70,6 +72,11 @@ uhf = {mult-1}
 chrg = {charge}"""
     with open("input.toml", "w") as f:
         f.write(tomlinput)
+
+    print("CREST run-type:", runtype)
+
+    if runtype == "imtd-gc":
+        print(f"Note:Energy window is {energywindow} kcal/mol")
 
     print("Now calling CREST like this: crest --input input.toml")
     process = sp.run([crestdir + '/crest', '--input', 'input.toml'])
