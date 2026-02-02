@@ -25,6 +25,7 @@ class gxTBTheory(Theory):
     def __init__(self, method=None, printlevel=2, numcores=1):
         super().__init__()
         self.theorynamelabel = "gxtb"
+        self.theorytype="QM"
         self.printlevel = printlevel
 
         # Check if gxtb in PATH
@@ -412,7 +413,7 @@ class xTBTheory:
             ashexit()
 
         # Checking if charge and mult has been provided
-        if charge == None or mult == None:
+        if charge is None or mult is None:
             print(BC.FAIL, "Error. charge and mult has not been defined for xTBTheory.run method", BC.END)
             ashexit()
 
