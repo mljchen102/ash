@@ -365,23 +365,23 @@ class PySCFTheory:
                 self.CASSCF_totnumstates=sum(self.CASSCF_numstates)
             print("Total number of CASSCF states: ", self.CASSCF_totnumstates)
 
-
-        #Are we doing an initial SCF calculation or not
-        #Generally yes.
-        #TODO: Can we skip this for CASSCF?
+        # Are we doing an initial SCF calculation or not
+        # Generally yes.
+        # TODO: Can we skip this for CASSCF?
         self.SCF=True
 
-        #Attempting to load pyscf
-        #self.load_pyscf()
         self.numcores=numcores
         if self.losc is True:
             self.load_losc(loscpath)
 
-        #Number of orbitals and basis functions (only setup upon run)
+        # Number of orbitals and basis functions (only setup upon run)
         self.num_basis_functions=None
         self.num_orbs=None
 
-        #Print the options
+        # How pointcharge gradient is calculated
+        self.PC_gradient_code = "new" # new or old
+
+        # Print the options
         if self.printlevel >= 1:
             print("SCF:", self.SCF)
             print("SCF-type:", self.scf_type)
@@ -2921,27 +2921,19 @@ class PySCFTheory:
 
                 current_MM_coords_bohr = current_MM_coords*ash.constants.ang2bohr
                 checkpoint=time.time()
-                new_way = True
-                if new_way:
-                    print("Using new way pointcharge gradient")
+
+                if self.PC_gradient_code == "new":
+                    print("Calculating pointcharge gradient (new way)")
+                    checkpoint=time.time()
                     dm = self.mf.make_rdm1()
-                    print("dm:", dm)
-                    print("dm type:", type(dm))
-                    print("dm shape:", dm.shape)
-                    print("dm ndim:", dm.ndim)
-                    if dm.ndim == 2:
-                        print("ndim 2")
-                    elif dm.ndim ==3:
-                        print("ndim 3")
+                    if dm.ndim ==3:
                         dm = dm[0]
-                        print("dm ndim:", dm.ndim)
-                        
-                    else:
-                        print("ndim diff")
                     g_mm_h1 = g.grad_hcore_mm(dm) 
                     g_mm_nuc = g.grad_nuc_mm()
                     self.pcgrad = g_mm_h1 + g_mm_nuc
+                    print_time_rel(checkpoint, modulename='pyscf_newpointcharge_gradient', moduleindex=2)
                 else:
+                    print("Calculating pointcharge gradient (old way)")
                     #Make density matrix
                     checkpoint=time.time()
                     dm = self.mf.make_rdm1()
