@@ -48,6 +48,12 @@ class gxTBTheory(Theory):
         module_init_time=time.time()
         numatoms=len(current_coords)
         write_xyzfile(elems, current_coords, "gxtb", printlevel=2, writemode='w', title="title")
+
+        # Writing Charge and Multiplicity to files
+        with open(".CHRG", "w") as f:
+            f.write(f"{charge}\n")
+        with open(".UHF", "w") as f:
+            f.write(f"{mult-1}\n")
         command_list=["gxtb", "-c", "gxtb.xyz"]
 
         if Grad:
