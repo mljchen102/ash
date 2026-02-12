@@ -434,7 +434,7 @@ class CP2KTheory:
                 shutil.copy(f"../POTENTIAL", f"./POTENTIAL")
             else:
                 print("No file found in parent dir. Using GTHpotential file from ASH. Copying to dir as POTENTIAL")
-                shutil.copyfile(ash.settings_ash.ashpath+'/databases/basis-sets/cp2k/GTH_POTENTIALS', './POTENTIAL')
+                shutil.copyfile(ash.settings_ash.ashpath+'/databases/basis_sets/cp2k/GTH_POTENTIALS', './POTENTIAL')
         print("Checking if BASIS file exists in current dir")
         if os.path.isfile("BASIS") is True:
             print(f"File exists in current directory: {os.getcwd()}")
@@ -445,7 +445,7 @@ class CP2KTheory:
                 shutil.copy(f"../BASIS", f"./BASIS")
             else:
                 print("No file found in parent dir. Using basis set file from ASH. Copying to dir as BASIS")
-                shutil.copyfile(ash.settings_ash.ashpath+'/databases/basis-sets/cp2k/BASIS_MOLOPT', './BASIS')
+                shutil.copyfile(ash.settings_ash.ashpath+'/databases/basis_sets/cp2k/BASIS_MOLOPT', './BASIS')
         print_time_rel(module_init_time, modulename=f'CP2K run-prep6', moduleindex=2)
         #Timing for Run-prep
         print_time_rel(module_init_time, modulename=f'CP2K run-prep', moduleindex=2)
