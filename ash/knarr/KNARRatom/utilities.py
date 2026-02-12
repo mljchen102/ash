@@ -274,7 +274,6 @@ def MakeEulerRotation(r, phi, theta, psi):
 
 
 def Convert1To3(ndim, rxyz):
-    print
     #Rb. py3 conversion. int instead of float
     rnew = np.zeros(shape=(int(ndim / 3), 3))
     ind = 0
