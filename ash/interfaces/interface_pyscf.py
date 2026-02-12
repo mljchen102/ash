@@ -2521,7 +2521,7 @@ class PySCFTheory:
             pass
 
         #Checking if charge and mult has been provided
-        if charge == None or mult == None:
+        if charge is None or mult is None:
             print(BC.FAIL, "Error. charge and mult has not been defined for PYSCFTheory.run method", BC.END)
             ashexit()
 
@@ -2902,9 +2902,7 @@ class PySCFTheory:
                     g = self.mf.Gradients()
                 else:
                     g = self.mf.nuc_grad_method()
-                    print("g object:", g)
                 self.gradient = g.kernel()
-                print("Debug: QM self.gradient:", self.gradient)
                 print_time_rel(checkpoint, modulename='pyscf_gradient', moduleindex=2)
 
             #Applying dispersion gradient last
