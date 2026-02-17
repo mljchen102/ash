@@ -152,7 +152,10 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
 ###########################
     if runmode=='parallel':
         print("Parallel runmode.")
-        #surfacepointfragments={}
+        print("Number of cores: ", numcores)
+        if numcores == 1:
+            print("Error: numcores is set to 1. Please set numcores to a value higher than 1 for parallel runmode. Exiting...")
+            ashexit()
         surfacepointfragments_lists=[]
         #####################
         # PARALLEL: UNRELAXED
