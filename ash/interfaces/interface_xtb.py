@@ -55,6 +55,8 @@ class gxTBTheory(Theory):
             # Setting GXTBHOME
             os.environ['GXTBHOME'] = self.gxtbdir
 
+        print("Warning: Interface is hardcoded to look for gxtb executable and .gxtb, .eeq and .basisq files in gxtbdir. Make sure these are present. Interface will exit if not.")
+        print("gxtbdir:", self.gxtbdir)
         # Checking if required gxtb files are present in gxtbdir
         from pathlib import Path
         if os.path.isfile(f"{self.gxtbdir}/.gxtb") is False:
