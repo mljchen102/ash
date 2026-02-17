@@ -22,23 +22,49 @@ from ash.modules.module_coords import (
 
 # Interface to the preliminary g-xTB implementation (warning: only numerical gradient)
 class gxTBTheory(Theory):
-    def __init__(self, method=None, printlevel=2, numcores=1):
+    def __init__(self, gxtbdir=None, method=None, printlevel=2, numcores=1):
         super().__init__()
         self.theorynamelabel = "gxtb"
         self.theorytype="QM"
         self.printlevel = printlevel
+        self.analytic_hessian=False
+        print_line_with_mainheader(f"{self.theorynamelabel}Theory initialization")
 
         # Check if gxtb in PATH
+        if gxtbdir is None:
+            print(BC.WARNING, "No gxtbdir argument passed to gxTBTheory. Attempting to find gxtbdir variable inside settings_ash", BC.END)
+            try:
+                print("settings_ash.settings_dict:", ash.settings_ash.settings_dict)
+                self.gxtbdir=ash.settings_ash.settings_dict["gxtbdir"]
+            except:
+                print(BC.WARNING,"Found no gxtbdir variable in ash.settings_ash module either.",BC.END)
+                try:
+                    self.gxtbdir = os.path.dirname(shutil.which('gxtb'))
+                    print(
+                        BC.OKGREEN,
+                        "Found gxtb in path. Setting gxtbdir to:",
+                        self.gxtbdir,
+                        BC.END
+                    )
+                except:
+                    print("Found no gxtb executable in path. Exiting... ")
+                    ashexit()
+        else:
+            self.gxtbdir = gxtbdir
+
+            # Setting GXTBHOME
+            os.environ['GXTBHOME'] = self.gxtbdir
+
+        # Checking if required gxtb files are present in gxtbdir
         from pathlib import Path
-        home = Path.home()
-        if os.path.isfile(f"{home}/.gxtb") is False:
-            print("~/.gxtb file does not exist")
+        if os.path.isfile(f"{self.gxtbdir}/.gxtb") is False:
+            print(f"{self.gxtbdir}/.gxtb file does not exist")
             ashexit()
-        if os.path.isfile(f"{home}/.eeq") is False:
-            print("~/.eeq file does not exist")
+        if os.path.isfile(f"{self.gxtbdir}/.eeq") is False:
+            print(f"{self.gxtbdir}/.eeq file does not exist")
             ashexit()
-        if os.path.isfile(f"{home}/.basisq") is False:
-            print("~/.basisq file does not exist")
+        if os.path.isfile(f"{self.gxtbdir}/.basisq") is False:
+            print(f"{self.gxtbdir}/.basisq file does not exist")
             ashexit()
 
 
@@ -85,9 +111,11 @@ class xTBTheory:
                  use_tblite=False, periodic=False, periodic_cell_dimensions=None, extraflag=None, grab_charges=False,
                  grab_BOs=False):
 
-        self.theorynamelabel="xTB"
         self.theorytype="QM"
+        self.theorynamelabel="xTB"
+        self.label=label
         self.analytic_hessian=False
+        print_line_with_mainheader(f"{self.theorynamelabel}Theory initialization")
 
         # Hardness of pointcharge. GAM factor. Big number means PC behaviour
         self.hardness=hardness_PC
