@@ -5,6 +5,7 @@ import time
 import numpy as np
 import pathlib
 from ash.functions.functions_general import ashexit, BC, print_time_rel,print_line_with_mainheader, writestringtofile
+from ash.modules.module_coords import nucchargelist
 import ash.settings_ash
 from ash.functions.functions_parallel import check_OpenMPI
 
@@ -145,6 +146,13 @@ class TurbomoleTheory:
         self.printlevel=printlevel
         self.numcores=numcores
 
+        # Get sysname once
+        self.run_sysname()
+
+        # Counter for how often TurbomoleTheory.run is called
+        self.runcalls=0
+
+
     # Set numcores method
     def set_numcores(self,numcores):
         self.numcores=numcores
@@ -160,8 +168,8 @@ class TurbomoleTheory:
         os.environ['PARNODES'] = str(numcores)
         print("PARA_ARCH has been set to: MPI")
         print("PARNODES has been set to ", numcores)
-        self.sysname=sp.run(['sysname'], stdout=sp.PIPE).stdout.decode('utf-8').replace("\n","")
-        print("sysname is now", self.sysname)
+        #self.sysname=sp.run([f'{self.TURBODIR}/scripts/sysname'], stdout=sp.PIPE).stdout.decode('utf-8').replace("\n","")
+        #print("sysname is now", self.sysname)
         os.environ['PATH']=f"{self.TURBODIR}/bin/{self.sysname}" + os.pathsep+os.environ['PATH']
         print("PATH:", os.environ['PATH'])
         self.mpi_is_setup=True
@@ -173,15 +181,17 @@ class TurbomoleTheory:
         os.environ['PARNODES'] = str(numcores)
         print("PARA_ARCH has been set to: SMP")
         print("PARNODES has been set to ", numcores)
-        self.sysname=sp.run(['sysname'], stdout=sp.PIPE).stdout.decode('utf-8').replace("\n","")
-        print("sysname is now", self.sysname)
         os.environ['PATH']=f"{self.TURBODIR}/bin/{self.sysname}" + os.pathsep+os.environ['PATH']
         print("PATH:", os.environ['PATH'])
         self.smp_is_setup=True
 
+    def run_sysname(self):
+        print("Running sysname script to find out system architecture")
+        self.sysname=sp.run([f'{self.TURBODIR}/scripts/sysname'], stdout=sp.PIPE).stdout.decode('utf-8').replace("\n","")
+        print("sysname is now", self.sysname)
+
     def run_turbo(self,filename, exe="ridft", numcores=1, parallelization=None):
         print(f"Running executable {exe} and writing to output {filename}.out")
-
         with open(filename+'.out', 'w') as ofile:
             if numcores >1:
                 if parallelization == 'MPI':
@@ -197,8 +207,7 @@ class TurbomoleTheory:
                     print("Now running Turbomole using binaries in dir:", f"{self.TURBODIR}/bin/{self.sysname}")
                     process = sp.run([f"{self.TURBODIR}/bin/{self.sysname}" + f'/{exe}'], check=True, stdout=ofile, stderr=ofile, universal_newlines=True)
             else:
-                #process = sp.run([turbomoledir + f'/{exe}'], check=True, stdout=ofile, stderr=ofile, universal_newlines=True)
-                self.sysname=sp.run(['sysname'], stdout=sp.PIPE).stdout.decode('utf-8').replace("\n","")
+                print("Running in serial mode")
                 process = sp.run([f"{self.TURBODIR}/bin/{self.sysname}" + f'/{exe}'], check=True, stdout=ofile, stderr=ofile, universal_newlines=True)
 
     # Run function. Takes coords, elems etc. arguments and computes E or E+G.
@@ -252,10 +261,12 @@ class TurbomoleTheory:
                 os.remove('control')
 
             print("Creating controlfile")
-            create_control_file(functional=self.functional, gridsize=self.gridsize, scfconv=self.scfconv, dft=self.dft,
+            numelectrons = int(nucchargelist(qm_elems) - charge)
+            create_control_file(runcalls=self.runcalls, functional=self.functional, gridsize=self.gridsize, scfconv=self.scfconv, dft=self.dft,
                             symmetry="c1", basis=self.basis, jbasis=self.jbasis, rij=self.rij, mp2=self.mp2,
                             scfiterlimit=self.scfiterlimit, maxcor=self.maxcor, ricore=self.ricore, charge=charge, mult=mult,
-                            pcharges=MMcharges, pccoords=current_MM_coords, pointcharge_type=self.pointcharge_type, pc_gaussians=self.pc_gaussians)
+                            pcharges=MMcharges, pccoords=current_MM_coords, pointcharge_type=self.pointcharge_type, pc_gaussians=self.pc_gaussians,
+                            numelectrons=numelectrons)
         # User-controlled controlfile
         else:
             print("controlfile option chosen: ", self.controlfile)
@@ -276,6 +287,13 @@ class TurbomoleTheory:
         # SCF-energy only
         self.run_turbo(self.filename_scf, exe=self.turbo_scf_exe, parallelization=self.parallelization,
                   numcores=self.numcores)
+        # Updating runcalls (this will also make sure that mos file is read in next run)
+        self.runcalls+=1
+        # Check if energy file has been created
+        if os.path.isfile("energy") is False:
+            print("Error: No energy file created. Something went wrong with the Turbomole run. Check Turbomole output files for more info. Exiting...")
+            ashexit()
+
         self.energy = grab_energy_from_energyfile()
         print("SCF Energy:", self.energy)
 
@@ -355,18 +373,48 @@ def create_coord_file(elems,coords, write_unit='BOHR', periodic_info=None, filen
             coordfile.write(f"{periodic_info[0]} {periodic_info[1]} {periodic_info[2]} {periodic_info[3]} {periodic_info[4]} {periodic_info[5]}\n")
         coordfile.write("$end\n")
 
-def create_control_file(functional="lh12ct-ssifpw92", gridsize="m4", scfconv="7", symmetry="c1", rij=True, dft=True, mp2=False,
+def create_control_file(runcalls=None, functional="lh12ct-ssifpw92", gridsize="m4", scfconv="7", symmetry="c1", rij=True, dft=True, mp2=False,
                         basis="def2-SVP", jbasis="def2-SVP", scfiterlimit=30, maxcor=500, ricore=500, charge=None, mult=None,
-                        pcharges=None, pccoords=None, pointcharge_type=None, pc_gaussians=None):
+                        pcharges=None, pccoords=None, pointcharge_type=None, pc_gaussians=None, numelectrons=None):
     if pccoords is not None:
         pccoords=pccoords*1.88972612546
 
+    # MO-line. First assuming to be empty unless runcalls > 0(turbomole will do an EHT guess automatically)
+    mosline=""
+
+    # Guess-line
     ehtline=f"$eht charge={charge} unpaired={mult-1}"
 
-
-#Skipping orb section for now
-#$closed shells
-# a       1-7                                    ( 2 )
+    # Closed vs. open-shell. Han dles occupations and MO-files
+    if mult == 1:
+        print("Case closed-shell. Writing closed-shell occupation in control file.")
+        shellsection=f"""$closed shells
+a       1-{int(numelectrons/2)}                                    ( 2 )"""
+        # If not first call then we read file mos (close-shell MO file).
+        if runcalls > 0:
+            print("Making sure mos-file from previous run is read in new control file")
+            mosline = "$scfmo   file=mos"
+        else:
+            print("First call. No mos file will be read")
+    else:
+        print("Case open-shell. Guessing occupation to be written in $uhf section of control file.")
+        num_a_electrons = int((numelectrons + mult - 1) / 2)
+        num_b_electrons = int((numelectrons - mult + 1) / 2 )
+        print("Assuming num_a_electrons:", num_a_electrons)
+        print("Assuming num_b_electrons:", num_b_electrons)
+        shellsection=f"""$uhf
+$alpha shells
+a       1-{num_a_electrons}                                    ( 1 )
+$beta shells
+a       1-{num_b_electrons}                                    ( 1 )
+"""
+        if runcalls > 0:
+            print("Making sure alpha and beta mo-file from previous run are read in new control file")
+            mosline = """$uhfmo_alpha    file=alpha
+$uhfmo_beta    file=beta"""
+        else:
+            print("First call. No alpha/beta MO files will be read")
+    # Now defining big control string.
 
     controlstring=f"""
 $title
@@ -377,7 +425,8 @@ $atoms
     jbas  ={jbasis}
 $basis    file=basis
 {ehtline}
-$scfmo   file=mos
+{mosline}
+{shellsection}
 $scfiterlimit       {scfiterlimit}
 $scfdamp   start=0.300  step=0.050  min=0.100
 $scfdump
