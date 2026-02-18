@@ -38,7 +38,9 @@ element_radii_for_cp2k = {'H': 0.44, 'He': 0.44, 'Li': 0.6, 'Be': 0.6,
 # 'XTB'
 class CP2KTheory:
     def __init__(self, cp2kdir=None, cp2k_bin_name=None, filename='cp2k', printlevel=2, basis_dict=None, potential_dict=None, label="CP2K",
-                periodic=False, periodic_type='XYZ', qm_periodic_type=None, xtb_periodic=False, xtb_type='GFN2', cell_dimensions=None, cell_vectors=None,
+                periodic=False, periodic_type='XYZ', qm_periodic_type=None, 
+                xtb_periodic=False, xtb_type='GFN2', xtb_tblite=False,
+                cell_dimensions=None, cell_vectors=None,
                 qm_cell_dims=None, qm_cell_shift_par=6.0, wavelet_scf_type=40,
                 functional=None, psolver='wavelet', potential_file='POTENTIAL', basis_file='BASIS',
                 basis_method='GAPW', ngrids=4, cutoff=250, rel_cutoff=60,
@@ -53,8 +55,9 @@ class CP2KTheory:
         self.label=label
         self.analytic_hessian=False
         print_line_with_mainheader(f"{self.theorynamelabel}Theory initialization")
-        #EARLY EXITS
+        # EARLY EXITS
         if basis_method.upper() != "XTB":
+            print("This is a regular CP2K DFT theory")
             if basis_dict is None:
                 print("basis_dict keyword is required")
                 ashexit()
@@ -64,8 +67,17 @@ class CP2KTheory:
             if functional is None:
                 print("functional keyword is required for PW andd GPW ")
                 ashexit()
-        #NOTE: We still define a cell even though we may not be periodic
-        #If no cell provided: CONTINUE and guess cell size later
+        else:
+            print("This is a CP2K xTB theory")
+            if xtb_tblite:
+                print("xtb_tblite True. Using tblite version of xTB.")
+            else:
+                print("xtb_tblite False. Using built-in version of xTB.")
+            print("xtb_type:", xtb_type)
+            print("xtb_periodic:", xtb_periodic)
+
+        # NOTE: We still define a cell even though we may not be doing periodic calc
+        # If no cell provided: CONTINUE and guess cell size later
         if cell_dimensions is None and cell_vectors is None:
             print("Warning: Neither cell_dimensions or cell_vectors have been provided.")
             print("This is not good but ASH will continue and try to guess the cell size from the QM-coordinates")
@@ -149,6 +161,7 @@ class CP2KTheory:
         self.qm_periodic_type=qm_periodic_type
         self.xtb_periodic=xtb_periodic # Boolean, xtB Ewald True or False
         self.xtb_type=xtb_type # xTB method to use. Options: 'GFN2', 'GFN1', 'GFN0'
+        self.xtb_tblite=xtb_tblite # Boolean, whether to use the tblite-library version of xTB
         # self.cell_length=cell_length #Total cell length (full system including MM if QM/MM)
         self.cell_dimensions=cell_dimensions #Cell dimensions. For full system
         self.cell_vectors=cell_vectors #Cell vectors. For full system
@@ -365,7 +378,7 @@ class CP2KTheory:
                              cell_dimensions=self.cell_dimensions,
                              cell_vectors=self.cell_vectors,
                              qm_cell_dims=self.qm_cell_dims, qm_periodic_type=self.qm_periodic_type,
-                             xtb_periodic=self.xtb_periodic, xtb_type=self.xtb_type,
+                             xtb_periodic=self.xtb_periodic, xtb_type=self.xtb_type, xtb_tblite=self.xtb_tblite,
                              basis_file=self.basis_file,
                              potential_file=self.potential_file, periodic_type=self.periodic_type,
                              psolver=self.psolver, coupling=self.coupling, GEEP_num_gauss=self.GEEP_num_gauss,
@@ -408,7 +421,7 @@ class CP2KTheory:
                              coordfile=system_xyzfile, scf_convergence=self.scf_convergence, eps_default=self.eps_default,
                              scf_maxiter=self.scf_maxiter, outer_scf_maxiter=self.outer_scf_maxiter,
                              periodic_type=self.periodic_type,
-                             xtb_periodic=self.xtb_periodic, xtb_type=self.xtb_type,
+                             xtb_periodic=self.xtb_periodic, xtb_type=self.xtb_type,xtb_tblite=self.xtb_tblite,
                              cell_dimensions=self.cell_dimensions,
                              cell_vectors=self.cell_vectors,
                              basis_file=self.basis_file, potential_file=self.potential_file,
@@ -525,7 +538,8 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
                     mgrid_commensurate=False, scf_maxiter=50, outer_scf_maxiter=10,
                     scf_guess='RESTART', scf_convergence=1e-6, eps_default=1e-10,
                     periodic_type="XYZ", cell_dimensions=None, cell_vectors=None,
-                    qm_cell_dims=None, qm_periodic_type=None, xtb_periodic=False, xtb_type='GFN2',
+                    qm_cell_dims=None, qm_periodic_type=None, 
+                    xtb_periodic=False, xtb_type='GFN2', xtb_tblite=False,
                     basis_file='BASIS', potential_file='POTENTIAL',
                     psolver='wavelet', wavelet_scf_type=40,
                     ngrids=4, cutoff=250, rel_cutoff=60,
@@ -628,10 +642,15 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
         if basis_method == 'XTB':
             # Extracting xTB code number from string, e.g. GFN2 -> 2, GFN1 -> 1, GFN0 -> 0
             xtbcode = int(''.join(filter(str.isdigit, xtb_type)))
-            inpfile.write(f'      &XTB\n') #NOTE
+            inpfile.write(f'      &XTB\n')
+            if xtb_tblite is True:
+                inpfile.write(f'          &TBLITE\n')
+                inpfile.write(f'            METHOD {xtb_type}\n')
+                inpfile.write(f'          &END\n')
+            else:
+                inpfile.write(f'          GFN_TYPE  {xtbcode}\n') #NOTE
             inpfile.write(f'          CHECK_ATOMIC_CHARGES F\n')
             inpfile.write(f'          DO_EWALD  {xtb_periodic}\n') #NOTE
-            inpfile.write(f'          GFN_TYPE  {xtbcode}\n') #NOTE
             inpfile.write(f'          USE_HALOGEN_CORRECTION T\n') #NOTE
             inpfile.write(f'      &END XTB\n') #NOTE
         inpfile.write(f'      EPS_DEFAULT {eps_default}\n') #NOTE
