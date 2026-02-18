@@ -172,6 +172,7 @@ class TurbomoleTheory:
         #print("sysname is now", self.sysname)
         os.environ['PATH']=f"{self.TURBODIR}/bin/{self.sysname}" + os.pathsep+os.environ['PATH']
         print("PATH:", os.environ['PATH'])
+        self.run_sysname()
         self.mpi_is_setup=True
 
     def setup_smp(self,numcores):
@@ -183,6 +184,7 @@ class TurbomoleTheory:
         print("PARNODES has been set to ", numcores)
         os.environ['PATH']=f"{self.TURBODIR}/bin/{self.sysname}" + os.pathsep+os.environ['PATH']
         print("PATH:", os.environ['PATH'])
+        self.run_sysname()
         self.smp_is_setup=True
 
     def run_sysname(self):
