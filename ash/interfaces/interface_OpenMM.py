@@ -6362,7 +6362,7 @@ def calc_total_nonbonding_energy(system):
     return coulomb_energy, lj_energy
 
 
-#Function that uses parmed to write and XML-file topology and OpenMM system
+#Function that uses parmed to write an XML-file topology and OpenMM system
 #Warning: Nonbonded 14 scaling requires modification after writing
 def write_xmlfile_parmed(topology,system,xmlfilename):
     # Load Parmed

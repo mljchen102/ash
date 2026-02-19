@@ -208,6 +208,9 @@ class TurbomoleTheory:
                         self.setup_smp(numcores)
                     print("Now running Turbomole using binaries in dir:", f"{self.TURBODIR}/bin/{self.sysname}")
                     process = sp.run([f"{self.TURBODIR}/bin/{self.sysname}" + f'/{exe}'], check=True, stdout=ofile, stderr=ofile, universal_newlines=True)
+                else:
+                    print("Error: parallelization method not recognized. Choose either 'MPI' or 'SMP'. Exiting...")
+                    ashexit()
             else:
                 print("Running in serial mode")
                 process = sp.run([f"{self.TURBODIR}/bin/{self.sysname}" + f'/{exe}'], check=True, stdout=ofile, stderr=ofile, universal_newlines=True)
