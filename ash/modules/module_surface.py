@@ -12,7 +12,7 @@ import shutil
 import copy
 import time
 #import ash
-from ash.functions.functions_general import frange, BC, print_line_with_mainheader,print_line_with_subheader1,print_time_rel, ashexit
+from ash.functions.functions_general import frange, BC, natural_sort, print_line_with_mainheader,print_line_with_subheader1,print_time_rel, ashexit
 from ash.modules.module_freq import calc_rotational_constants
 import ash.functions.functions_parallel
 from ash.modules.module_coords import check_charge_mult
@@ -508,6 +508,16 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
     print("surfacedictionary:", surfacedictionary)
     # Writing dictionary to file
     write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
+
+    # Combining XYZ-files in surface_xyzfiles into single XYZ-file for visualization
+    def combine_xyzfiles_in_directory(xyzdir, outputfilename):
+        xyzfile_list = glob.glob(xyzdir+'/*.xyz')
+        with open(outputfilename, 'w') as outfile:
+            for xyzfile in natural_sort(xyzfile_list):
+                with open(xyzfile, 'r') as infile:
+                    contents = infile.read()
+                    outfile.write(contents)
+    combine_xyzfiles_in_directory(xyzdir="surface_xyzfiles", outputfilename="surface_traj.xyz")
 
     print_time_rel(module_init_time, modulename='calc_surface', moduleindex=0)
     result = ASH_Results(label="Surface calc", surfacepoints=surfacedictionary)
