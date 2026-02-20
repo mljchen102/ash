@@ -5,7 +5,9 @@ from ash.modules.module_coords import distance
 from ash.modules.module_theory import Theory
 from ash.functions.functions_general import ashexit, blankline,print_time_rel,BC, load_julia_interface
 import ash.constants
-
+#from ash.modules.module_freq import AnFreq, NumFreq
+#from ash.interfaces.interface_geometric_new import Optimizer
+#from ash.interfaces.interface_OpenMM import basic_atom_charges_ORCA, basic_atomcharges_xTB
 
 # Simple nonbonded MM theory. Charges and LJ-potentials
 class NonBondedTheory(Theory):

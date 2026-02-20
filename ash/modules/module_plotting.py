@@ -282,7 +282,7 @@ class ASH_plot():
 #Input: dictionary of (X,Y): energy   entries
 #NOTE: Partially deprecated thanks to ASHplot. Relative energy option is useful though.
 #TODO: Keep but call ASHplot here instead of doing separate plotting
-def reactionprofile_plot(surfacedictionary, finalunit='',label='Label', x_axislabel='Coord', y_axislabel='Energy', dpi=200, mode='pyplot',
+def reactionprofile_plot(surfacedictionary, finalunit=None,label='Label', x_axislabel='Coord', y_axislabel='Energy', dpi=200, mode='pyplot',
                          imageformat='png', RelativeEnergy=True, pointsize=40, scatter_linewidth=2, line_linewidth=1, color='blue',
                         filename='Plot'):
 
@@ -303,6 +303,9 @@ def reactionprofile_plot(surfacedictionary, finalunit='',label='Label', x_axisla
         e.append(surfacedictionary[key])
 
     if RelativeEnergy is True:
+        if finalunit == None:
+            print("RelativeEnergy is True but finalunit not provided. Exiting.")
+            ashexit()
         #List of energies and relenergies here
         refenergy=float(min(e))
         rele=[]
@@ -314,6 +317,12 @@ def reactionprofile_plot(surfacedictionary, finalunit='',label='Label', x_axisla
     print(f"Coords ({len(coords)}): {coords}")
     print(f"finalvalues ({len(finalvalues)}): {finalvalues}")
     print(f"Relative energies({finalunit}): {finalvalues}")
+
+    # Write relative energies to file:
+    print(f"Writing relative energies to file: surface_results_relE.txt")
+    with open(f'surface_results_relE.txt', 'w') as relfile:
+        for i,j in zip(coords, finalvalues):
+            relfile.write("{:13.10f} {:13.10f} \n".format(i,j))
 
     if mode == 'pyplot':
         plt.close() #Clear memory of previous plots
