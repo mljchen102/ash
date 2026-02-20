@@ -72,6 +72,8 @@ class CP2KTheory:
             print("This is a CP2K xTB theory")
             if xtb_tblite:
                 print("xtb_tblite True. Using tblite version of xTB.")
+                print("Warning: disabling OT for xtb-tblite")
+                OT=False
             else:
                 print("xtb_tblite False. Using built-in version of xTB.")
             print("xtb_type:", xtb_type)
@@ -195,7 +197,7 @@ class CP2KTheory:
         self.functional=functional
         self.center_coords=center_coords
 
-        #SCF onvergence stuff
+        # SCF onvergence stuff
         self.OT=OT
         self.OT_minimizer=OT_minimizer
         self.OT_preconditioner=OT_preconditioner
