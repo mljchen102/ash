@@ -705,9 +705,9 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
 
             #PRINT stuff
             inpfile.write(f'    &PRINT\n')
-            inpfile.write(f'      &MO\n')
-            inpfile.write(f'        EIGENVALUES .TRUE.\n')
-            inpfile.write(f'      &END MO\n')
+            #inpfile.write(f'      &MO\n')
+            #inpfile.write(f'        EIGENVALUES .TRUE.\n')
+            #inpfile.write(f'      &END MO\n')
             inpfile.write(f'    &END PRINT\n')
 
             #XC

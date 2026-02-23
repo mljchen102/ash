@@ -146,6 +146,11 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
     #os.mkdir('surface_fragfiles')
     os.mkdir('surface_mofiles')
 
+    try:
+        os.remove("surface_traj.xyz")
+    except:
+        pass
+
 
 ###########################
 #  PARALLEL
@@ -357,6 +362,9 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
                             charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False)
 
+                            # Write to trajectory
+                            fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')
+
                             # Write geometry to disk
                             fragment.write_xyzfile(xyzfilename="RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz")
                             #fragment.print_system(filename="RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".ygg")
@@ -398,6 +406,9 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         geomeTRICOptimizer(fragment=fragment, theory=zerotheory, maxiter=maxiter, coordsystem=coordsystem,
                         constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
                             charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False)
+
+                        # Write to trajectory
+                        fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')
 
                         #Write geometry to disk: RC1_2.02.xyz
                         fragment.write_xyzfile(xyzfilename="RC1_"+str(RCvalue1)+".xyz")
@@ -456,6 +467,9 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                                 print("Warning: For hybrid theories, outputfiles and MO-files are not kept")
                             surfacedictionary[(RCvalue1,RCvalue2)] = energy
 
+                            # Write to trajectory
+                            fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')
+
                             # Write geometry to disk
                             fragment.write_xyzfile(xyzfilename="RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz")
                             #fragment.print_system(filename="RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".ygg")
@@ -497,11 +511,14 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             print("Warning: For hybrid theories, outputfiles and MO-files are not kept")
                         surfacedictionary[(RCvalue1)] = energy
 
-                        #Write geometry to disk
+                        # Write to trajectory
+                        fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')
+
+                        # Write geometry to disk
                         fragment.write_xyzfile(xyzfilename="RC1_"+str(RCvalue1)+".xyz")
-                        #fragment.print_system(filename="RC1_"+str(RCvalue1)+".ygg")
+                        # fragment.print_system(filename="RC1_"+str(RCvalue1)+".ygg")
                         shutil.move("RC1_"+str(RCvalue1)+".xyz", "surface_xyzfiles/"+"RC1_"+str(RCvalue1)+".xyz")
-                        #shutil.move("RC1_"+str(RCvalue1)+".ygg", "surface_fragfiles/"+"RC1_"+str(RCvalue1)+".ygg")
+                        # shutil.move("RC1_"+str(RCvalue1)+".ygg", "surface_fragfiles/"+"RC1_"+str(RCvalue1)+".ygg")
                     else:
                         print("RC1 value in dict already. Skipping.")
 
@@ -517,7 +534,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                 with open(xyzfile, 'r') as infile:
                     contents = infile.read()
                     outfile.write(contents)
-    combine_xyzfiles_in_directory(xyzdir="surface_xyzfiles", outputfilename="surface_traj.xyz")
+    combine_xyzfiles_in_directory(xyzdir="surface_xyzfiles", outputfilename="surface_traj_final.xyz")
 
     print_time_rel(module_init_time, modulename='calc_surface', moduleindex=0)
     result = ASH_Results(label="Surface calc", surfacepoints=surfacedictionary)
