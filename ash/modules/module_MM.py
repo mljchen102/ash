@@ -1049,153 +1049,153 @@ def seminario(fragment=None, hessian=None, method="original"):
 
     return bondedFF
 
-def derive_FF_parameters(fragment=None, theory=None, anfreq=False,
-                         hessian=None, charge_model=None, charges=None, method="original"):
+# def derive_FF_parameters(fragment=None, theory=None, anfreq=False,
+#                          hessian=None, charge_model=None, charges=None, method="original"):
 
-    if fragment.charge is None or fragment.mult is None:
-        print("Fragment charge and/or multiplicity not present in object. Exiting")
-        ashexit()
+#     if fragment.charge is None or fragment.mult is None:
+#         print("Fragment charge and/or multiplicity not present in object. Exiting")
+#         ashexit()
 
-    #Optimization
-    print("Running geometry optimization for fragment using theory:", theory)
-    result_opt = Optimizer(fragment=fragment, theory=theory)
+#     #Optimization
+#     print("Running geometry optimization for fragment using theory:", theory)
+#     result_opt = Optimizer(fragment=fragment, theory=theory)
 
-    #NumFreq or AnFreq
-    if hessian is None:
-        print("No Hessian provided. Will calculate Hessian.")
-        if anfreq == True:
-            print("anfreq is set to True. Will try to calculate Hessian using AnFreq method (only possible for some interfaces and some methods inside external QM programs)")
-            print("Running AnFreq calculation to get Hessian")
-            result_freq = AnFreq(theory=theory, fragment=fragment)
-        else:
-            print("anfreq is set to False. Will try to calculate Hessian using NumFreq method (numerical differentiation of gradients)..")
-            print("Running NumFreq calculation to get Hessian")
-            result_freq = NumFreq(theory=theory, fragment=fragment)    
-        hessian = result_freq.hessian
-    else:
-        print("Hessian provided. Will use this Hessian for FF parameter derivation.")
+#     #NumFreq or AnFreq
+#     if hessian is None:
+#         print("No Hessian provided. Will calculate Hessian.")
+#         if anfreq == True:
+#             print("anfreq is set to True. Will try to calculate Hessian using AnFreq method (only possible for some interfaces and some methods inside external QM programs)")
+#             print("Running AnFreq calculation to get Hessian")
+#             result_freq = AnFreq(theory=theory, fragment=fragment)
+#         else:
+#             print("anfreq is set to False. Will try to calculate Hessian using NumFreq method (numerical differentiation of gradients)..")
+#             print("Running NumFreq calculation to get Hessian")
+#             result_freq = NumFreq(theory=theory, fragment=fragment)    
+#         hessian = result_freq.hessian
+#     else:
+#         print("Hessian provided. Will use this Hessian for FF parameter derivation.")
 
-    # Charge calculation
-    if charges is None:
-        print("No charges provided. Will calculate charges using charge_model")
-        print("charge_model:", charge_model)
-        if charge_model == "xTB":
-            print("Using xTB charges")
-            charges = basic_atomcharges_xTB(fragment=fragment, charge=charge, mult=mult, xtbmethod='GFN2')
-        elif charge_model == "CM5_ORCA" or charge_model == "CM5":
-            print("CM5_ORCA option chosen")
-            atompropdict = basic_atom_charges_ORCA(fragment=fragment, charge=charge, mult=mult,
-                                                orcatheory=theory, chargemodel="CM5", numcores=numcores)
-            charges = atompropdict['charges']
-        elif charge_model == "DDEC3" or charge_model == "DDEC6":
-            print("Using {} atomcharges and DDEC-derived parameters.".format(charge_model))
-            atompropdict = basic_atom_charges_ORCA(fragment=fragment, charge=charge, mult=mult,
-                                                orcatheory=theory, chargemodel=charge_model, numcores=numcores)
-            charges = atompropdict['charges']
-        else:
-            print("Unknown charge_model option")
-            exit()
-        exit()
-    else:
-        print("Charges provided. Will use these charges for FF parameter derivation.")
+#     # Charge calculation
+#     if charges is None:
+#         print("No charges provided. Will calculate charges using charge_model")
+#         print("charge_model:", charge_model)
+#         if charge_model == "xTB":
+#             print("Using xTB charges")
+#             charges = basic_atomcharges_xTB(fragment=fragment, charge=charge, mult=mult, xtbmethod='GFN2')
+#         elif charge_model == "CM5_ORCA" or charge_model == "CM5":
+#             print("CM5_ORCA option chosen")
+#             atompropdict = basic_atom_charges_ORCA(fragment=fragment, charge=charge, mult=mult,
+#                                                 orcatheory=theory, chargemodel="CM5", numcores=numcores)
+#             charges = atompropdict['charges']
+#         elif charge_model == "DDEC3" or charge_model == "DDEC6":
+#             print("Using {} atomcharges and DDEC-derived parameters.".format(charge_model))
+#             atompropdict = basic_atom_charges_ORCA(fragment=fragment, charge=charge, mult=mult,
+#                                                 orcatheory=theory, chargemodel=charge_model, numcores=numcores)
+#             charges = atompropdict['charges']
+#         else:
+#             print("Unknown charge_model option")
+#             exit()
+#         exit()
+#     else:
+#         print("Charges provided. Will use these charges for FF parameter derivation.")
 
-    # Call seminario function to derive bonded FF parameters
-    bondedFF = seminario(fragment=None, hessian=hessian, method=method)
+#     # Call seminario function to derive bonded FF parameters
+#     bondedFF = seminario(fragment=None, hessian=hessian, method=method)
 
-    # Nonbonded parameters
-    nonbondedFF = {'charges': charges, 'sigmas': None, 'epsilons': None}
+#     # Nonbonded parameters
+#     nonbondedFF = {'charges': charges, 'sigmas': None, 'epsilons': None}
 
-    print("Forcefield parameters derived using Seminario method. FF:", FF)
-    # Write FF parameters to OpenMM XML format file
-    # something similar to write_xmlfile_nonbonded
-    write_xmlfile_full(resnames=None, atomnames_per_res=None, atomtypes_per_res=None, elements_per_res=None, masses_per_res=None, 
-                            charges_per_res=None, sigmas_per_res=None, epsilons_per_res=None, filename="system.xml", coulomb14scale=0.833333,
-                            lj14scale=0.5, skip_nb=False, charmm=False)
+#     print("Forcefield parameters derived using Seminario method. FF.)
+#     # Write FF parameters to OpenMM XML format file
+#     # something similar to write_xmlfile_nonbonded
+#     write_xmlfile_full(resnames=None, atomnames_per_res=None, atomtypes_per_res=None, elements_per_res=None, masses_per_res=None, 
+#                             charges_per_res=None, sigmas_per_res=None, epsilons_per_res=None, filename="system.xml", coulomb14scale=0.833333,
+#                             lj14scale=0.5, skip_nb=False, charmm=False)
 
 
-# Write full forcefield XML file with all parameters (atomtypes, nonbonded, bonds, angles, torsions etc)
-def write_xmlfile_full(resnames=None, atomnames_per_res=None, atomtypes_per_res=None, elements_per_res=None,
-                            masses_per_res=None, charges_per_res=None, sigmas_per_res=None,
-                            epsilons_per_res=None, filename="system.xml", coulomb14scale=0.833333,
-                            lj14scale=0.5, skip_nb=False, charmm=False):
-    print("Inside write_xmlfile_full")
+# # Write full forcefield XML file with all parameters (atomtypes, nonbonded, bonds, angles, torsions etc)
+# def write_xmlfile_full(resnames=None, atomnames_per_res=None, atomtypes_per_res=None, elements_per_res=None,
+#                             masses_per_res=None, charges_per_res=None, sigmas_per_res=None,
+#                             epsilons_per_res=None, filename="system.xml", coulomb14scale=0.833333,
+#                             lj14scale=0.5, skip_nb=False, charmm=False):
+#     print("Inside write_xmlfile_full")
 
-    assert len(resnames) == len(atomnames_per_res) == len(atomtypes_per_res)
-    # Get list of all unique atomtypes, elements, masses
-    # all_atomtypes=list(set([item for sublist in atomtypes_per_res for item in sublist]))
-    # all_elements=list(set([item for sublist in elements_per_res for item in sublist]))
-    # all_masses=list(set([item for sublist in masses_per_res for item in sublist]))
+#     assert len(resnames) == len(atomnames_per_res) == len(atomtypes_per_res)
+#     # Get list of all unique atomtypes, elements, masses
+#     # all_atomtypes=list(set([item for sublist in atomtypes_per_res for item in sublist]))
+#     # all_elements=list(set([item for sublist in elements_per_res for item in sublist]))
+#     # all_masses=list(set([item for sublist in masses_per_res for item in sublist]))
 
-    # Create list of all AtomTypelines (unique)
-    atomtypelines = []
-    for resname, atomtypelist, elemlist, masslist in zip(resnames, atomtypes_per_res, elements_per_res, masses_per_res):
-        for atype, elem, mass in zip(atomtypelist, elemlist, masslist):
-            atomtypeline = "<Type name=\"{}\" class=\"{}\" element=\"{}\" mass=\"{}\"/>\n".format(atype, atype, elem,
-                                                                                                  str(mass))
-            if atomtypeline not in atomtypelines:
-                atomtypelines.append(atomtypeline)
-    # BONDED PARAMETERS
+#     # Create list of all AtomTypelines (unique)
+#     atomtypelines = []
+#     for resname, atomtypelist, elemlist, masslist in zip(resnames, atomtypes_per_res, elements_per_res, masses_per_res):
+#         for atype, elem, mass in zip(atomtypelist, elemlist, masslist):
+#             atomtypeline = "<Type name=\"{}\" class=\"{}\" element=\"{}\" mass=\"{}\"/>\n".format(atype, atype, elem,
+#                                                                                                   str(mass))
+#             if atomtypeline not in atomtypelines:
+#                 atomtypelines.append(atomtypeline)
+#     # BONDED PARAMETERS
 
-    #Bonds
+#     #Bonds
 
-    #Angles
+#     #Angles
 
-    #Dihedrals
+#     #Dihedrals
     
-    # NONBONDED PARAMETERS
-    # Create list of all nonbonded lines (unique)
-    nonbondedlines = []
-    LJforcelines = []
-    for resname, atomtypelist, chargelist, sigmalist, epsilonlist in zip(resnames, atomtypes_per_res, charges_per_res,
-                                                                         sigmas_per_res, epsilons_per_res):
-        for atype, charge, sigma, epsilon in zip(atomtypelist, chargelist, sigmalist, epsilonlist):
-            if charmm == True:
-                #LJ parameters zero here
-                nonbondedline = "<Atom type=\"{}\" charge=\"{}\" sigma=\"{}\" epsilon=\"{}\"/>\n".format(atype, charge,0.0, 0.0)
-                #Here we set LJ parameters
-                ljline = "<Atom type=\"{}\" sigma=\"{}\" epsilon=\"{}\"/>\n".format(atype, sigma, epsilon)
-                if nonbondedline not in nonbondedlines:
-                    nonbondedlines.append(nonbondedline)
-                if ljline not in LJforcelines:
-                    LJforcelines.append(ljline)
-            else:
-                nonbondedline = "<Atom type=\"{}\" charge=\"{}\" sigma=\"{}\" epsilon=\"{}\"/>\n".format(atype, charge,
-                                                                                                        sigma, epsilon)
-                if nonbondedline not in nonbondedlines:
-                    nonbondedlines.append(nonbondedline)
+#     # NONBONDED PARAMETERS
+#     # Create list of all nonbonded lines (unique)
+#     nonbondedlines = []
+#     LJforcelines = []
+#     for resname, atomtypelist, chargelist, sigmalist, epsilonlist in zip(resnames, atomtypes_per_res, charges_per_res,
+#                                                                          sigmas_per_res, epsilons_per_res):
+#         for atype, charge, sigma, epsilon in zip(atomtypelist, chargelist, sigmalist, epsilonlist):
+#             if charmm == True:
+#                 #LJ parameters zero here
+#                 nonbondedline = "<Atom type=\"{}\" charge=\"{}\" sigma=\"{}\" epsilon=\"{}\"/>\n".format(atype, charge,0.0, 0.0)
+#                 #Here we set LJ parameters
+#                 ljline = "<Atom type=\"{}\" sigma=\"{}\" epsilon=\"{}\"/>\n".format(atype, sigma, epsilon)
+#                 if nonbondedline not in nonbondedlines:
+#                     nonbondedlines.append(nonbondedline)
+#                 if ljline not in LJforcelines:
+#                     LJforcelines.append(ljline)
+#             else:
+#                 nonbondedline = "<Atom type=\"{}\" charge=\"{}\" sigma=\"{}\" epsilon=\"{}\"/>\n".format(atype, charge,
+#                                                                                                         sigma, epsilon)
+#                 if nonbondedline not in nonbondedlines:
+#                     nonbondedlines.append(nonbondedline)
 
-    with open(filename, 'w') as xmlfile:
-        xmlfile.write("<ForceField>\n")
-        xmlfile.write("<AtomTypes>\n")
-        for atomtypeline in atomtypelines:
-            xmlfile.write(atomtypeline)
-        xmlfile.write("</AtomTypes>\n")
-        xmlfile.write("<Residues>\n")
-        for resname, atomnamelist, atomtypelist in zip(resnames, atomnames_per_res, atomtypes_per_res):
-            xmlfile.write("<Residue name=\"{}\">\n".format(resname))
-            for i, (atomname, atomtype) in enumerate(zip(atomnamelist, atomtypelist)):
-                xmlfile.write("<Atom name=\"{}\" type=\"{}\"/>\n".format(atomname, atomtype))
-            # All other atoms
-            xmlfile.write("</Residue>\n")
-        xmlfile.write("</Residues>\n")
-        if skip_nb is False:
+#     with open(filename, 'w') as xmlfile:
+#         xmlfile.write("<ForceField>\n")
+#         xmlfile.write("<AtomTypes>\n")
+#         for atomtypeline in atomtypelines:
+#             xmlfile.write(atomtypeline)
+#         xmlfile.write("</AtomTypes>\n")
+#         xmlfile.write("<Residues>\n")
+#         for resname, atomnamelist, atomtypelist in zip(resnames, atomnames_per_res, atomtypes_per_res):
+#             xmlfile.write("<Residue name=\"{}\">\n".format(resname))
+#             for i, (atomname, atomtype) in enumerate(zip(atomnamelist, atomtypelist)):
+#                 xmlfile.write("<Atom name=\"{}\" type=\"{}\"/>\n".format(atomname, atomtype))
+#             # All other atoms
+#             xmlfile.write("</Residue>\n")
+#         xmlfile.write("</Residues>\n")
+#         if skip_nb is False:
 
-            if charmm == True:
-                #Writing both Nonbnded force block and also LennardJonesForce block
-                xmlfile.write("<NonbondedForce coulomb14scale=\"{}\" lj14scale=\"{}\">\n".format(coulomb14scale, lj14scale))
-                for nonbondedline in nonbondedlines:
-                    xmlfile.write(nonbondedline)
-                xmlfile.write("</NonbondedForce>\n")
-                xmlfile.write("<LennardJonesForce lj14scale=\"{}\">\n".format(lj14scale))
-                for ljline in LJforcelines:
-                    xmlfile.write(ljline)
-                xmlfile.write("</LennardJonesForce>\n")
-            else:
-                #Only NonbondedForce block
-                xmlfile.write("<NonbondedForce coulomb14scale=\"{}\" lj14scale=\"{}\">\n".format(coulomb14scale, lj14scale))
-                for nonbondedline in nonbondedlines:
-                    xmlfile.write(nonbondedline)
-                xmlfile.write("</NonbondedForce>\n")
-        xmlfile.write("</ForceField>\n")
-    print("Wrote XML-file:", filename)
-    return filename
+#             if charmm == True:
+#                 #Writing both Nonbnded force block and also LennardJonesForce block
+#                 xmlfile.write("<NonbondedForce coulomb14scale=\"{}\" lj14scale=\"{}\">\n".format(coulomb14scale, lj14scale))
+#                 for nonbondedline in nonbondedlines:
+#                     xmlfile.write(nonbondedline)
+#                 xmlfile.write("</NonbondedForce>\n")
+#                 xmlfile.write("<LennardJonesForce lj14scale=\"{}\">\n".format(lj14scale))
+#                 for ljline in LJforcelines:
+#                     xmlfile.write(ljline)
+#                 xmlfile.write("</LennardJonesForce>\n")
+#             else:
+#                 #Only NonbondedForce block
+#                 xmlfile.write("<NonbondedForce coulomb14scale=\"{}\" lj14scale=\"{}\">\n".format(coulomb14scale, lj14scale))
+#                 for nonbondedline in nonbondedlines:
+#                     xmlfile.write(nonbondedline)
+#                 xmlfile.write("</NonbondedForce>\n")
+#         xmlfile.write("</ForceField>\n")
+#     print("Wrote XML-file:", filename)
+#     return filename
