@@ -13,7 +13,7 @@ import ash.constants
 class MACETheory():
     def __init__(self, config_filename="config.yml", 
                  filename="mace.model", model_file=None, printlevel=2, 
-                 label="MACETheory", numcores=1, device="cpu", return_zero_gradient=False,
+                 label="MACETheory", numcores=1, device="cpu", return_zero_gradient=False, polarmace=False, default_dtype="float64",
                  energy_weight=None, forces_weight=None, max_num_epochs=None, valid_fraction=None):
         # Early exits
         try:
@@ -32,9 +32,14 @@ class MACETheory():
         self.config_filename=config_filename
         self.filename = filename
         self.printlevel = printlevel
-
+        self.properties = {}
         # Ignore predicted forces and return zero gradient
         self.return_zero_gradient=return_zero_gradient
+
+        # Distinguish between old MACE and polarMACE
+        self.polarmace=polarmace
+
+        self.default_dtype=default_dtype
 
         # Model attribute is None until we have loaded a model
         self.model=None
@@ -219,12 +224,31 @@ class MACETheory():
 
     def model_load(self):
         module_init_time=time.time()
-        import torch
-        # Load model
-        print(f"Loading model from file {self.model_file}. Device is: {self.device}")
-        self.model = torch.load(f=self.model_file, map_location=torch.device(self.device))
-        self.model = self.model.to(self.device)  # for possible cuda problems
-        print_time_rel(module_init_time, modulename=f'MACE model-load', moduleindex=2)
+
+        if 'polar' in self.model_file.lower():
+            print("Model file name contains 'polar'. Assuming this is a polar MACE model. Loading polar mace")
+            self.polarmace=True
+            from mace.calculators import mace_polar
+            self.model = mace_polar(
+                model=self.model_file,
+                device=self.device,           # or "cuda"
+                default_dtype=self.default_dtype # use float32 for faster MD
+            )
+        else:
+            print("Loading regular MACE via Pytorch")
+            import torch
+            # Load model
+            print(f"Loading model from file {self.model_file}. Device is: {self.device}")
+            self.model = torch.load(f=self.model_file, map_location=torch.device(self.device))
+            self.model = self.model.to(self.device)  # for possible cuda problems
+            print_time_rel(module_init_time, modulename=f'MACE model-load', moduleindex=2)
+
+    def get_dipole_moment(self):
+        if "dipole" not in self.properties:
+            print("Dipole moment not available")
+            return None
+        else:
+            return self.properties["dipole"]
 
     def run(self, current_coords=None, current_MM_coords=None, MMcharges=None, qm_elems=None, mm_elems=None,
             elems=None, Grad=False, PC=False, numcores=None, restart=False, label=None, Hessian=False,
@@ -268,88 +292,111 @@ class MACETheory():
         # Checking if file exists
         self.check_file_exists(self.model_file)
 
-        #Making sure Grad is True
+        # Making sure Grad is True
         if Hessian:
             Grad=True
 
-        # Call model to get energy
-        from mace.cli.eval_configs import main
-        from mace import data
-        from mace.tools import torch_geometric, torch_tools, utils
-        from mace.tools import utils, to_one_hot, atomic_numbers_to_indices
-        import torch
-        from mace.modules.utils import compute_hessians_vmap, compute_hessians_loop, compute_forces
-
+        # Checking that model is loaded
         if self.model is None:
             print("Model has not been loaded yet.")
             self.model_load()
 
-        # Simplest to use ase here to create Atoms object
-        import ase
-        atoms = ase.atoms.Atoms(qm_elems,positions=current_coords)
-        config = data.config_from_atoms(atoms)
-        z_table = utils.AtomicNumberTable([int(z) for z in self.model.atomic_numbers])
-        # Create dataloader
-        data_loader = torch_geometric.dataloader.DataLoader(
-            dataset=[data.AtomicData.from_config(
-                    config, z_table=z_table, cutoff=float(self.model.r_max), heads=None)],
-            shuffle=False,
-            drop_last=False)
-        #
-        option_1=True
-        if option_1:
-            # Get batch
-            for batch in data_loader:
-                batch = batch.to(self.device)
-            # Run model
-            try:
-                output = self.model(batch.to_dict(), compute_stress=False, compute_force=False)
+        if self.polarmace:
+            print("This is a polar MACE model. Running using different interface.")
 
-            except RuntimeError as e:
-                print("RuntimeError occurred. Trying type changes. Message", e)
-                self.model = self.model.float() # sometimes necessary to avoid type problems
-                output = self.model(batch.to_dict(), compute_stress=False, compute_force=False)
-            print_time_rel(module_init_time, modulename=f'MACE run - after energy', moduleindex=2)
-            # Grab energy
-            en = torch_tools.to_numpy(output["energy"])[0]
-            self.energy = float(en*ash.constants.evtohar)
+            # Simplest to use ase here to create Atoms object
+            import ase
+            atoms = ase.atoms.Atoms(qm_elems,positions=current_coords)
 
-            # Grad Boolean
-            if Grad:
-                # Calculate forces
-                forces_tensor = compute_forces(output["energy"], batch["positions"])
-                print_time_rel(module_init_time, modulename=f'MACE run - after forces', moduleindex=2)
-                forces_np = torch_tools.to_numpy(forces_tensor)
-                self.gradient = forces_np/-51.422067090480645
+            atoms.info["charge"] = charge
+            atoms.info["spin"] = mult
+            # atoms.info["external_field"] = [0.0, 0.0, 0.0]
+            atoms.calc = self.model
 
-            # Hessian 
-            if Hessian:
-                print("Running Hessian")
-                hess = compute_hessians_vmap(forces_tensor,batch["positions"])
-                hessian = torch_tools.to_numpy(hess)
-                print("hessian:", hessian)
-                print_time_rel(module_init_time, modulename=f'MACE run - after hessian', moduleindex=2)
+            self.energy = atoms.get_potential_energy() * ash.constants.evtohar
+            forces = atoms.get_forces()
+            self.gradient = forces/-51.422067090480645
+            # stress = atoms.get_stress()
+            # TODO: Hessian ?
 
-        # This worked previously
+            # Grab some other attributes 
+            # Charges
+            self.charges = self.model.results["charges"]
+            # dipole
+            #mu = calc.results["dipole"]
+            self.properties["dipole"] = self.model.results["dipole"]
+
         else:
-            print("previous regular mode")
-            for batch in data_loader:
+            # Call model to get energy
+            from mace.cli.eval_configs import main
+            from mace import data
+            from mace.tools import torch_geometric, torch_tools, utils
+            from mace.tools import utils, to_one_hot, atomic_numbers_to_indices
+            import torch
+            from mace.modules.utils import compute_hessians_vmap, compute_hessians_loop, compute_forces
+
+
+
+            # Simplest to use ase here to create Atoms object
+            import ase
+            atoms = ase.atoms.Atoms(qm_elems,positions=current_coords)
+
+            # Charge and spin: only makes sense for mace_polar
+            atoms.info["charge"] = charge
+            atoms.info["spin"] = mult
+
+            config = data.config_from_atoms(atoms)
+            z_table = utils.AtomicNumberTable([int(z) for z in self.model.atomic_numbers])
+            # Create dataloader
+            data_loader = torch_geometric.dataloader.DataLoader(
+                dataset=[data.AtomicData.from_config(
+                        config, z_table=z_table, cutoff=float(self.model.r_max), heads=None)],
+                shuffle=False,
+                drop_last=False)
+            #
+            option_1=True
+            if option_1:
+                # Get batch
+                for batch in data_loader:
+                    batch = batch.to(self.device)
+                # Run model
                 try:
-                    output = self.model(batch.to_dict(), compute_stress=False, compute_force=Grad)
+                    output = self.model(batch.to_dict(), compute_stress=False, compute_force=False)
+
                 except RuntimeError as e:
                     print("RuntimeError occurred. Trying type changes. Message", e)
                     self.model = self.model.float() # sometimes necessary to avoid type problems
-                    output = self.model(batch.to_dict(), compute_stress=False, compute_force=Grad)
+                    output = self.model(batch.to_dict(), compute_stress=False, compute_force=False)
+                print_time_rel(module_init_time, modulename=f'MACE run - after energy', moduleindex=2)
+                # Grab energy
+                en = torch_tools.to_numpy(output["energy"])[0]
+                self.energy = float(en*ash.constants.evtohar)
 
-            # Get energy and forces
-            en = torch_tools.to_numpy(output["energy"])[0]
-            self.energy = float(en*ash.constants.evtohar)
-            if Grad:
-                forces = np.split(
-                    torch_tools.to_numpy(output["forces"]),
-                    indices_or_sections=batch.ptr[1:],
-                    axis=0)[0]
-                self.gradient = forces/-51.422067090480645
+                # Grad Boolean
+                if Grad:
+                    # Calculate forces
+                    forces_tensor = compute_forces(output["energy"], batch["positions"])
+                    print_time_rel(module_init_time, modulename=f'MACE run - after forces', moduleindex=2)
+                    forces_np = torch_tools.to_numpy(forces_tensor)
+                    self.gradient = forces_np/-51.422067090480645
+
+                # Hessian 
+                if Hessian:
+                    print("Running Hessian")
+                    hess = compute_hessians_vmap(forces_tensor,batch["positions"])
+                    hessian = torch_tools.to_numpy(hess)
+                    print("hessian:", hessian)
+                    print_time_rel(module_init_time, modulename=f'MACE run - after hessian', moduleindex=2)
+
+                # Get energy and forces
+                en = torch_tools.to_numpy(output["energy"])[0]
+                self.energy = float(en*ash.constants.evtohar)
+                if Grad:
+                    forces = np.split(
+                        torch_tools.to_numpy(output["forces"]),
+                        indices_or_sections=batch.ptr[1:],
+                        axis=0)[0]
+                    self.gradient = forces/-51.422067090480645
 
         if Hessian:
             self.hessian = hessian*0.010291772

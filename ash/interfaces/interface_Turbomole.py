@@ -12,7 +12,7 @@ from ash.functions.functions_parallel import check_OpenMPI
 # Turbomole Theory object.
 
 class TurbomoleTheory:
-    def __init__(self, TURBODIR=None, turbomoledir=None, filename='XXX', printlevel=2, label="Turbomole",
+    def __init__(self, TURBODIR=None, turbomoledir=None, filename='XXX', printlevel=2, label="Turbomole", uff=False,
                 numcores=1, parallelization='SMP', functional=None, gridsize="m4", scfconv=7, symmetry="c1", rij=True,
                 basis=None, jbasis=None, scfiterlimit=50, maxcor=500, ricore=500, controlfile=None,skip_control_gen=False,
                 mp2=False, pointcharge_type=None, pc_gaussians=None):
@@ -38,6 +38,7 @@ class TurbomoleTheory:
         self.parallelization=parallelization
         self.mpi_is_setup=False
         self.smp_is_setup=False
+        self.uff=uff
 
         # controlfile from user
         self.controlfile=controlfile
@@ -52,12 +53,21 @@ class TurbomoleTheory:
         # if pointcharge_type is 'mxrank=Z' where Z is max multipole rank then we are doing point-multipole embedding. TODO: input not yet ready
         # if pointcharge_type is 'pe'. Polarizable embedding. TODO: not yet ready
 
-        # Basis set check
-        if controlfile is None:
-            print("No controlfile provided. This requires basis to be provided")
-            if basis is None:
-                print(BC.WARNING, f"No basis set provided to {self.theorynamelabel}Theory. Exiting...", BC.END)
-                ashexit()
+        # UFF
+        if self.uff:
+            print("Initializign Turbomole UFF option")
+            self.skip_control_gen=True
+            self.turbo_scf_exe="uff"
+            self.filename_scf="uff"
+        # not-UFF, i.e. QM
+        else:
+            print("Initializing Turbomole QM")
+            # QM controfile or Basis set check
+            if controlfile is None:
+                print("No controlfile provided. This requires basis to be provided")
+                if basis is None:
+                    print(BC.WARNING, f"No basis set provided to {self.theorynamelabel}Theory. Exiting...", BC.END)
+                    ashexit()
         self.basis=basis
 
         # User controlfile
@@ -224,7 +234,7 @@ class TurbomoleTheory:
             numcores = self.numcores
 
         print(BC.OKBLUE, BC.BOLD, f"------------RUNNING {self.theorynamelabel} INTERFACE-------------", BC.END)
-        #Checking if charge and mult has been provided
+        # Checking if charge and mult has been provided
         if charge is None or mult is None:
             print(BC.FAIL, f"Error. charge and mult has not been defined for {self.theorynamelabel}Theory.run method", BC.END)
             ashexit()
@@ -232,14 +242,14 @@ class TurbomoleTheory:
         print("Job label:", label)
 
 
-        #Coords provided to run
+        # Coords provided to run
         if current_coords is not None:
             pass
         else:
             print("no current_coords")
             ashexit()
 
-        #What elemlist to use. If qm_elems provided then QM/MM job, otherwise use elems list
+        # What elemlist to use. If qm_elems provided then QM/MM job, otherwise use elems list
         if qm_elems is None:
             if elems is None:
                 print("No elems provided")
@@ -286,21 +296,37 @@ class TurbomoleTheory:
         #################
 
         print("Running Turbomole executable:", self.turbo_scf_exe)
-        if os.path.isfile("control") is False:
-            print("No control file present. Exiting")
-            ashexit()
-        # SCF-energy only
+
+        # Check for control file unless UFF
+        if self.uff is False:
+            if os.path.isfile("control") is False:
+                print("No control file present. Exiting")
+                ashexit()
+
+        # Run energy only (SCF for DFT/WFT. or UFF)
         self.run_turbo(self.filename_scf, exe=self.turbo_scf_exe, parallelization=self.parallelization,
                   numcores=self.numcores)
         # Updating runcalls (this will also make sure that mos file is read in next run)
         self.runcalls+=1
-        # Check if energy file has been created
-        if os.path.isfile("energy") is False:
-            print("Error: No energy file created. Something went wrong with the Turbomole run. Check Turbomole output files for more info. Exiting...")
-            ashexit()
 
-        self.energy = grab_energy_from_energyfile()
-        print("SCF Energy:", self.energy)
+        if self.uff:
+            print("Grabbing UFF energy and gradient")
+            if os.path.isfile("uffenergy") is False:
+                print("Error: No uffenergy file created. Something went wrong with the Turbomole run. Check Turbomole output files for more info. Exiting...")
+            self.energy = grab_energy_from_energyfile(file="uffenergy")
+            print("UFF Energy:", self.energy)
+            # Gradient
+            self.gradient = grab_uffgradient(len(current_coords), file="uffgradient")
+            print("self.gradient:", self.gradient)
+
+        else:
+            # Check if energy file has been created
+            if os.path.isfile("energy") is False:
+                print("Error: No energy file created. Something went wrong with the Turbomole run. Check Turbomole output files for more info. Exiting...")
+                ashexit()
+
+            self.energy = grab_energy_from_energyfile()
+            print("SCF Energy:", self.energy)
 
         # MP2 energy only
         if self.mp2 is True:
@@ -312,7 +338,7 @@ class TurbomoleTheory:
             print("Total MP2 energy:", self.energy)
 
         # GRADIENT
-        if Grad is True:
+        if Grad is True and self.uff is False:
             print("Running Turbomole-gradient executable")
             print("self.turbo_exe_grad:", self.turbo_exe_grad)
             print("self.filename_grad:", self.filename_grad)
@@ -491,9 +517,9 @@ $rij"""
     writestringtofile(controlstring, 'control')
 
 
-def grab_energy_from_energyfile(column=1):
+def grab_energy_from_energyfile(file="energy", column=1):
     energy = None
-    with open('energy', 'r') as energyfile:
+    with open(file, 'r') as energyfile:
         for line in energyfile:
             if '$end' in line:
                 return energy
@@ -501,9 +527,9 @@ def grab_energy_from_energyfile(column=1):
                 energy = float(line.split()[column])
     return energy
 
-def grab_gradient(numatoms):
+def grab_gradient(numatoms,file="gradient"):
     gradient = np.zeros((numatoms,3))
-    with open('gradient', 'r') as gradfile:
+    with open(file, 'r') as gradfile:
         gradlines = gradfile.readlines()
     counter=0
     for i,line in enumerate(gradlines):
@@ -512,7 +538,25 @@ def grab_gradient(numatoms):
         if i > numatoms+1:
             gradient[counter] = [float(j.replace('D','E')) for j in line.split()]
             counter+=1
+    return gradient
 
+def grab_uffgradient(numatoms,file="uffgradient"):
+    gradient = np.zeros((numatoms,3))
+    with open(file, 'r') as gradfile:
+        gradlines = gradfile.readlines()
+    #Reverse lines
+    gradlines.reverse()
+    # Setting counter to be numatoms
+    counter=numatoms
+    #Read lines in reverse
+    for i,line in enumerate(gradlines):
+        # Break when done
+        if counter == 0:
+            break
+        # Grab gradient
+        if '$end' not in line:
+            gradient[counter-1] = [float(j.replace('D','E')) for j in line.split()]
+            counter-=1
     return gradient
 
 def grab_pcgradient(numpc,filename="pc_gradient"):

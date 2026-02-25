@@ -123,6 +123,7 @@ from .interfaces.interface_torch import TorchTheory
 from .interfaces.interface_mace import MACETheory
 from .interfaces.interface_fairchem import FairchemTheory
 from .interfaces.interface_packmol import packmol_solvate
+from .interfaces.interface_openbabel import OpenBabelTheory
 
 # MM: external and internal
 from .interfaces.interface_OpenMM import OpenMMTheory, OpenMM_MD, OpenMM_MDclass, OpenMM_Opt, OpenMM_Modeller, \

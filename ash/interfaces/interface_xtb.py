@@ -414,7 +414,7 @@ class xTBTheory:
         ash.modules.module_coords.print_internal_coordinate_table(fragment)
         print_time_rel(module_init_time, modulename='xtB Opt-run', moduleindex=2)
         return
-    
+
     #Method to grab dipole moment from an xtb outputfile (assumes run has been executed)
     def get_dipole_moment(self):
         return grab_dipole_moment(self.filename+'.out')
