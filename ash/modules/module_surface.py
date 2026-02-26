@@ -383,7 +383,8 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                                 else:
                                     print("Warning: For hybrid theories, outputfiles and MO-files are not kept")
                             surfacedictionary[(RCvalue1,RCvalue2)] = energy
-
+                            # Write surfacedictionary to file after each step
+                            write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
                         else:
                             print("RC1, RC2 values in dict already. Skipping.")
                     print("surfacedictionary:", surfacedictionary)
@@ -427,6 +428,8 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         else:
                             print("Warning: For hybrid theories, outputfiles and MO-files are not kept")
                         surfacedictionary[(RCvalue1)] = energy
+                        # Write surfacedictionary to file after each step
+                        write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
                     else:
                         print("RC1 value in dict already. Skipping.")
         #####################
@@ -466,6 +469,9 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             else:
                                 print("Warning: For hybrid theories, outputfiles and MO-files are not kept")
                             surfacedictionary[(RCvalue1,RCvalue2)] = energy
+
+                            # Write surfacedictionary to file after each step
+                            write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
 
                             # Write to trajectory
                             fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')
@@ -510,6 +516,9 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         else:
                             print("Warning: For hybrid theories, outputfiles and MO-files are not kept")
                         surfacedictionary[(RCvalue1)] = energy
+
+                        # Write surfacedictionary to file after each step
+                        write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
 
                         # Write to trajectory
                         fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')

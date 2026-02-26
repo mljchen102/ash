@@ -45,6 +45,7 @@ class CP2KTheory:
                 qm_cell_dims=None, qm_cell_shift_par=6.0, wavelet_scf_type=40,
                 functional=None, psolver='wavelet', potential_file='POTENTIAL', basis_file='BASIS',
                 basis_method='GAPW', ngrids=4, cutoff=250, rel_cutoff=60,
+                kpoint_settings=None, 
                 method='QUICKSTEP', numcores=1, parallelization='OMP', mixed_mpi_procs=None, mixed_omp_threads=None,
                 center_coords=True, scf_maxiter=50, outer_scf_maxiter=10, scf_convergence=1e-6, eps_default=1e-10,
                 coupling='GAUSSIAN', GEEP_num_gauss=6, MM_radius_scaling=1, mm_radii=None,
@@ -217,6 +218,9 @@ class CP2KTheory:
         self.scf_maxiter=scf_maxiter
         self.outer_scf_maxiter=outer_scf_maxiter
         self.eps_default=eps_default
+
+        # K-points
+        self.kpoint_settings=kpoint_settings
 
         #QM/MM
         self.coupling=coupling
@@ -408,6 +412,7 @@ class CP2KTheory:
                              coordfile=system_xyzfile,
                              user_input_dft=self.user_input_dft, vdwpotential=self.vdwpotential,
                              cell_dimensions=self.cell_dimensions,
+                             kpoint_settings=self.kpoint_settings,
                              cell_vectors=self.cell_vectors,
                              qm_cell_dims=self.qm_cell_dims, qm_periodic_type=self.qm_periodic_type,
                              xtb_periodic=self.xtb_periodic, xtb_type=self.xtb_type, xtb_tblite=self.xtb_tblite,
@@ -451,6 +456,7 @@ class CP2KTheory:
                              functional=self.functional, restartfile=None,
                              Grad=Grad, filename='cp2k', charge=charge, mult=mult,
                              user_input_dft=self.user_input_dft, vdwpotential=self.vdwpotential,
+                             kpoint_settings=self.kpoint_settings,
                              coordfile=system_xyzfile, scf_convergence=self.scf_convergence, eps_default=self.eps_default,
                              scf_maxiter=self.scf_maxiter, outer_scf_maxiter=self.outer_scf_maxiter,
                              periodic_type=self.periodic_type,
@@ -572,6 +578,7 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
                     mgrid_commensurate=False, scf_maxiter=50, outer_scf_maxiter=10,
                     scf_guess='RESTART', scf_convergence=1e-6, eps_default=1e-10,
                     periodic_type="XYZ", cell_dimensions=None, cell_vectors=None,
+                    kpoint_settings=None,
                     qm_cell_dims=None, qm_periodic_type=None, 
                     xtb_periodic=False, xtb_type='GFN2', xtb_tblite=False,
                     basis_file='BASIS', potential_file='POTENTIAL',
@@ -703,6 +710,11 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
             inpfile.write(f'      COMMENSURATE {mgrid_commensurate}\n')
             inpfile.write(f'    &END MGRID\n')
 
+            #K-points
+            if kpoint_settings is not None:
+                inpfile.write(f'    &KPOINTS\n')
+                inpfile.write(f'      SCHEME MONKHORST-PACK {kpoint_settings[0]} {kpoint_settings[1]} {kpoint_settings[2]}\n')
+                inpfile.write(f'    &END KPOINTS\n')
             #PRINT stuff
             inpfile.write(f'    &PRINT\n')
             #inpfile.write(f'      &MO\n')

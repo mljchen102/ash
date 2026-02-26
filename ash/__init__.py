@@ -41,7 +41,7 @@ from .modules.module_results import ASH_Results,read_results_from_file
 import ash.modules.module_coords
 from .modules.module_coords import get_molecules_from_trajectory, eldict_covrad, write_pdbfile, Fragment, read_xyzfile, \
     write_xyzfile, make_cluster_from_box, read_ambercoordinates, read_gromacsfile, split_multimolxyzfile,distance_between_atoms, \
-    angle_between_atoms, dihedral_between_atoms, pdb_to_smiles, xyz_to_pdb_with_connectivity, writepdb_with_connectivity, mol_to_pdb, sdf_to_pdb
+    angle_between_atoms, dihedral_between_atoms, 
 from .modules.module_coords import remove_atoms_from_system_CHARMM, add_atoms_to_system_CHARMM, getwaterconstraintslist,\
     QMregionfragexpand, cut_sphere, cut_cubic_box, QMPC_fragexpand, read_xyzfiles, Reaction, define_XH_constraints, simple_get_water_constraints, print_internal_coordinate_table,\
     flexible_align_pdb, flexible_align_xyz, flexible_align, insert_solute_into_solvent, nuc_nuc_repulsion, calculate_RMSD
@@ -123,7 +123,8 @@ from .interfaces.interface_torch import TorchTheory
 from .interfaces.interface_mace import MACETheory
 from .interfaces.interface_fairchem import FairchemTheory
 from .interfaces.interface_packmol import packmol_solvate
-from .interfaces.interface_openbabel import OpenBabelTheory
+from .interfaces.interface_openbabel import OpenBabelTheory, pdb_to_smiles, mol_to_pdb, sdf_to_pdb, writepdb_with_connectivity, \
+                                            xyz_to_pdb_with_connectivity
 
 # MM: external and internal
 from .interfaces.interface_OpenMM import OpenMMTheory, OpenMM_MD, OpenMM_MDclass, OpenMM_Opt, OpenMM_Modeller, \
