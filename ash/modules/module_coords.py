@@ -392,6 +392,7 @@ class Fragment:
         #    self.calc_connectivity(scale=scale, tol=tol)
     def create_coords_from_smiles(self, smiles):
         print("Creating coordinates from SMILES string:", smiles)
+        from ash.interfaces.interface_openbabel import smiles_to_coords
         elems, coords = smiles_to_coords(smiles)
         self.elems = elems
         self.coords = reformat_list_to_array(coords)
