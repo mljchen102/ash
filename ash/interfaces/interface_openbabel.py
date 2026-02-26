@@ -6,7 +6,6 @@ import numpy as np
 
 from ash.functions.functions_general import ashexit, BC, print_time_rel,print_line_with_mainheader
 import ash.settings_ash
-from ash.functions.functions_parallel import check_OpenMPI
 from ash.modules.module_coords import reformat_element
 
 # Interface to OpenBabel for running implemented theories (e.g. UFF)
