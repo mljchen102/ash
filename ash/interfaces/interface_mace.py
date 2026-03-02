@@ -301,6 +301,7 @@ class MACETheory():
             print("Model has not been loaded yet.")
             self.model_load()
 
+        # New simpler MACE interface
         if self.polarmace:
             print("This is a polar MACE model. Running using different interface.")
 
@@ -325,7 +326,7 @@ class MACETheory():
             # dipole
             #mu = calc.results["dipole"]
             self.properties["dipole"] = self.model.results["dipole"]
-
+        # Older interface
         else:
             # Call model to get energy
             from mace.cli.eval_configs import main
@@ -334,8 +335,6 @@ class MACETheory():
             from mace.tools import utils, to_one_hot, atomic_numbers_to_indices
             import torch
             from mace.modules.utils import compute_hessians_vmap, compute_hessians_loop, compute_forces
-
-
 
             # Simplest to use ase here to create Atoms object
             import ase
@@ -354,49 +353,37 @@ class MACETheory():
                 shuffle=False,
                 drop_last=False)
             #
-            option_1=True
-            if option_1:
-                # Get batch
-                for batch in data_loader:
-                    batch = batch.to(self.device)
-                # Run model
-                try:
-                    output = self.model(batch.to_dict(), compute_stress=False, compute_force=False)
+            # Get batch
+            for batch in data_loader:
+                batch = batch.to(self.device)
+            # Run model
+            try:
+                output = self.model(batch.to_dict(), compute_stress=False, compute_force=False)
 
-                except RuntimeError as e:
-                    print("RuntimeError occurred. Trying type changes. Message", e)
-                    self.model = self.model.float() # sometimes necessary to avoid type problems
-                    output = self.model(batch.to_dict(), compute_stress=False, compute_force=False)
-                print_time_rel(module_init_time, modulename=f'MACE run - after energy', moduleindex=2)
-                # Grab energy
-                en = torch_tools.to_numpy(output["energy"])[0]
-                self.energy = float(en*ash.constants.evtohar)
+            except RuntimeError as e:
+                print("RuntimeError occurred. Trying type changes. Message", e)
+                self.model = self.model.float() # sometimes necessary to avoid type problems
+                output = self.model(batch.to_dict(), compute_stress=False, compute_force=False)
+            print_time_rel(module_init_time, modulename=f'MACE run - after energy', moduleindex=2)
+            # Grab energy
+            en = torch_tools.to_numpy(output["energy"])[0]
+            self.energy = float(en*ash.constants.evtohar)
 
-                # Grad Boolean
-                if Grad:
-                    # Calculate forces
-                    forces_tensor = compute_forces(output["energy"], batch["positions"])
-                    print_time_rel(module_init_time, modulename=f'MACE run - after forces', moduleindex=2)
-                    forces_np = torch_tools.to_numpy(forces_tensor)
-                    self.gradient = forces_np/-51.422067090480645
+            # Grad Boolean
+            if Grad:
+                # Calculate forces
+                forces_tensor = compute_forces(output["energy"], batch["positions"])
+                print_time_rel(module_init_time, modulename=f'MACE run - after forces', moduleindex=2)
+                forces_np = torch_tools.to_numpy(forces_tensor)
+                self.gradient = forces_np/-51.422067090480645
 
-                # Hessian 
-                if Hessian:
-                    print("Running Hessian")
-                    hess = compute_hessians_vmap(forces_tensor,batch["positions"])
-                    hessian = torch_tools.to_numpy(hess)
-                    print("hessian:", hessian)
-                    print_time_rel(module_init_time, modulename=f'MACE run - after hessian', moduleindex=2)
-
-                # Get energy and forces
-                en = torch_tools.to_numpy(output["energy"])[0]
-                self.energy = float(en*ash.constants.evtohar)
-                if Grad:
-                    forces = np.split(
-                        torch_tools.to_numpy(output["forces"]),
-                        indices_or_sections=batch.ptr[1:],
-                        axis=0)[0]
-                    self.gradient = forces/-51.422067090480645
+            # Hessian 
+            if Hessian:
+                print("Running Hessian")
+                hess = compute_hessians_vmap(forces_tensor,batch["positions"])
+                hessian = torch_tools.to_numpy(hess)
+                print("hessian:", hessian)
+                print_time_rel(module_init_time, modulename=f'MACE run - after hessian', moduleindex=2)
 
         if Hessian:
             self.hessian = hessian*0.010291772
