@@ -581,7 +581,7 @@ class xTBTheory:
             if self.calcobject == None:
                 print("Creating new xTB calc object")
                 # Storing number of elements
-                self.stored_numatoms=len(qm_elems_numbers)
+                self.stored_atoms_sum=sum(qm_elems_numbers)
                 self.calcobject = Calculator(param_method, qm_elems_numbers, coords_au, charge=charge, uhf=mult-1)
                 self.calcobject.set_verbosity(self.verbosity)
                 self.calcobject.set_electronic_temperature(self.electronic_temp)
@@ -595,11 +595,11 @@ class xTBTheory:
             else:
                 if self.printlevel >= 2:
                     print("Updating coordinates in xTB calcobject")
-                if len(coords_au) != self.stored_numatoms:
-                    print("Warning: Number of coordinates not consistent with previous elements.")
+                if sum(qm_elems_numbers) != self.stored_atoms_sum:
+                    print("Warning: Coordinates not consistent with previous elements.")
                     print("Creating new xTB calc object")
                     # Storing number of elements
-                    self.stored_numatoms=len(qm_elems_numbers)
+                    self.stored_atoms_sum=sum(qm_elems_numbers)
                     self.calcobject = Calculator(param_method, qm_elems_numbers, coords_au, charge=charge, uhf=mult-1)
                     self.calcobject.set_verbosity(self.verbosity)
                     self.calcobject.set_electronic_temperature(self.electronic_temp)
