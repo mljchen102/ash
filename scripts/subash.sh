@@ -291,6 +291,7 @@ cp \$SLURM_SUBMIT_DIR/*.gbw \$tdir/ 2>/dev/null
 cp \$SLURM_SUBMIT_DIR/*.molden \$tdir/ 2>/dev/null
 cp \$SLURM_SUBMIT_DIR/*nat \$tdir/ 2>/dev/null
 cp \$SLURM_SUBMIT_DIR/*.chk \$tdir/ 2>/dev/null
+cp \$SLURM_SUBMIT_DIR/*.dcd \$tdir/ 2>/dev/null
 cp \$SLURM_SUBMIT_DIR/*.xtl \$tdir/ 2>/dev/null
 cp \$SLURM_SUBMIT_DIR/*.ff \$tdir/ 2>/dev/null
 cp \$SLURM_SUBMIT_DIR/*.ygg \$tdir/ 2>/dev/null
