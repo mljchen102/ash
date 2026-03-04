@@ -442,3 +442,77 @@ def BernyOpt(theory,fragment, charge=None, mult=None):
     print("Final optimized energy:",  fragment.energy)
     fragment.replace_coords(fragment.elems,geom.coords)
     blankline()
+
+
+# Preliminary cell-vector optimization routines
+# Takes lattice vectors and stress tensor and return gradient
+def get_cell_gradients(lattice_matrix, stress_tensor_gpa, external_pressure_gpa=0.0, return_type='matrix'):
+    """
+    Calculates cell gradients from a stress tensor provided in GPa.
+    
+    Parameters:
+    -----------
+    lattice_matrix : np.ndarray (3, 3)
+        The cell matrix where columns are the lattice vectors [a, b, c] in Angstroms.
+    stress_tensor_gpa : np.ndarray (3, 3)
+        The symmetric stress tensor in GPa.
+    external_pressure_gpa : float
+        External pressure in GPa (subtracted from the internal stress).
+    return_type : str
+        'matrix' -> returns (3, 3) dE/dH in eV/Angstrom
+        'parameters' -> returns list [de_da, de_db, de_dc, de_dalpha, de_dbeta, de_dgamma]
+    """
+    
+    # 1. Conversion Constant: 1 GPa = 0.006241509 eV/Angstrom^3
+    GPA_TO_EV_ANG3 = 1.0 / 160.21766208
+    
+    # 2. Convert Stress and Pressure to eV/Angstrom^3
+    sigma_ev = stress_tensor_gpa * GPA_TO_EV_ANG3
+    p_ext_ev = external_pressure_gpa * GPA_TO_EV_ANG3
+    
+    # 3. Calculate Volume (Omega) in Angstrom^3
+    volume = np.linalg.det(lattice_matrix)
+    
+    # 4. Total Stress (Internal Stress + External Pressure)
+    # Note: Optimization minimizes Enthalpy H = E + PV. 
+    # The gradient dH/dh includes the P_ext term.
+    sigma_tot = sigma_ev + p_ext_ev * np.eye(3)
+    
+    # 5. Matrix Gradient: dE/dH = Volume * Stress * (H^-1).T
+    # Units: [Ang^3] * [eV/Ang^3] * [1/Ang] = eV/Ang
+    inv_h_t = np.linalg.inv(lattice_matrix).T
+    de_dh = volume * np.dot(sigma_tot, inv_h_t)
+    
+    if return_type == 'matrix':
+        return de_dh
+    
+    elif return_type == 'parameters':
+        # Extract vectors and lengths
+        a_vec, b_vec, c_vec = lattice_matrix[:, 0], lattice_matrix[:, 1], lattice_matrix[:, 2]
+        a, b, c = np.linalg.norm(a_vec), np.linalg.norm(b_vec), np.linalg.norm(c_vec)
+        
+        # dE/dL (Length gradients in eV/Angstrom)
+        de_da = np.dot(de_dh[:, 0], a_vec / a)
+        de_db = np.dot(de_dh[:, 1], b_vec / b)
+        de_dc = np.dot(de_dh[:, 2], c_vec / c)
+        
+        # Helper for angle gradients (units: eV/radian)
+        def get_angle_grad(v1, v2, g1, g2):
+            n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
+            cos_theta = np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)
+            sin_theta = np.sqrt(1.0 - cos_theta**2)
+            
+            if sin_theta < 1e-8: 
+                return 0.0
+            
+            # Chain rule: dE/dTheta
+            dtheta_dv1 = (cos_theta * v1 / n1**2 - v2 / (n1 * n2)) / sin_theta
+            dtheta_dv2 = (cos_theta * v2 / n2**2 - v1 / (n1 * n2)) / sin_theta
+            
+            return np.dot(g1, dtheta_dv1) + np.dot(g2, dtheta_dv2)
+
+        de_dalpha = get_angle_grad(b_vec, c_vec, de_dh[:, 1], de_dh[:, 2])
+        de_dbeta  = get_angle_grad(a_vec, c_vec, de_dh[:, 0], de_dh[:, 2])
+        de_dgamma = get_angle_grad(a_vec, b_vec, de_dh[:, 0], de_dh[:, 1])
+        
+        return [de_da, de_db, de_dc, de_dalpha, de_dbeta, de_dgamma]

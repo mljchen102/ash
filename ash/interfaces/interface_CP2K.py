@@ -38,7 +38,7 @@ element_radii_for_cp2k = {'H': 0.44, 'He': 0.44, 'Li': 0.6, 'Be': 0.6,
 # 'XTB'
 class CP2KTheory:
     def __init__(self, cp2kdir=None, cp2k_bin_name=None, filename='cp2k', printlevel=2, basis_dict=None, potential_dict=None, label="CP2K",
-                periodic=False, periodic_type='XYZ', qm_periodic_type=None, 
+                periodic=False, periodic_type='XYZ', qm_periodic_type=None, stress_tensor=False, stress_tensor_algo="DIAGONAL_ANALYTICAL",
                 xtb_periodic=False, xtb_type='GFN2', xtb_tblite=False,
                 user_input_dft=None, vdwpotential=None,
                 cell_dimensions=None, cell_vectors=None,
@@ -209,6 +209,10 @@ class CP2KTheory:
 
         # Dispersion corrections
         self.vdwpotential=vdwpotential
+
+        # Stress tensor
+        self.stress_tensor=stress_tensor
+        self.stress_tensor_algo = stress_tensor_algo
 
         #Grid stuff
         self.ngrids=ngrids
@@ -410,6 +414,7 @@ class CP2KTheory:
                              functional=self.functional, restartfile=None, mgrid_commensurate=True,
                              Grad=Grad, filename='cp2k', charge=charge, mult=mult,
                              coordfile=system_xyzfile,
+                             stress_tensor=self.stress_tensor, stress_tensor_algo=self.stress_tensor_algo,
                              user_input_dft=self.user_input_dft, vdwpotential=self.vdwpotential,
                              cell_dimensions=self.cell_dimensions,
                              kpoint_settings=self.kpoint_settings,
@@ -429,7 +434,7 @@ class CP2KTheory:
         else:
             #No QM/MM
             #QM-CELL
-            if self.cell_dimensions is None:
+            if self.cell_dimensions is None and self.cell_vectors is None:
                 print("Warning: cell dimensions have not been set by user")
                 print("Now estimating cell box dimensions from the system oordinates.")
                 if self.psolver == 'wavelet':
@@ -455,13 +460,14 @@ class CP2KTheory:
                              basis_method=self.basis_method, wavelet_scf_type=self.wavelet_scf_type,
                              functional=self.functional, restartfile=None,
                              Grad=Grad, filename='cp2k', charge=charge, mult=mult,
+                             stress_tensor=self.stress_tensor, stress_tensor_algo=self.stress_tensor_algo,
                              user_input_dft=self.user_input_dft, vdwpotential=self.vdwpotential,
                              kpoint_settings=self.kpoint_settings,
                              coordfile=system_xyzfile, scf_convergence=self.scf_convergence, eps_default=self.eps_default,
                              scf_maxiter=self.scf_maxiter, outer_scf_maxiter=self.outer_scf_maxiter,
                              periodic_type=self.periodic_type,
                              xtb_periodic=self.xtb_periodic, xtb_type=self.xtb_type,xtb_tblite=self.xtb_tblite,
-                             cell_dimensions=self.cell_dimensions,
+                             cell_dimensions=self.cell_dimensions, 
                              cell_vectors=self.cell_vectors,
                              basis_file=self.basis_file, potential_file=self.potential_file,
                              psolver=self.psolver, printlevel=self.printlevel,
@@ -473,8 +479,13 @@ class CP2KTheory:
             os.remove(f'ash-{self.filename}-1_0.xyz')
         except:
             pass
+        #Delete old forces file if present
+        try:
+            os.remove(f'ash-{self.filename}-1_0.stress_tensor')
+        except:
+            pass
         print_time_rel(module_init_time, modulename=f'CP2K run-prep5', moduleindex=2)
-        #Check for BASIS and POTENTIAL FILES before calling
+        # Check for BASIS and POTENTIAL FILES before calling
         print("Checking if POTENTIAL file exists in current dir")
         if os.path.isfile("POTENTIAL") is True:
             print(f"File exists in current directory: {os.getcwd()}")
@@ -498,27 +509,30 @@ class CP2KTheory:
                 print("No file found in parent dir. Using basis set file from ASH. Copying to dir as BASIS")
                 shutil.copyfile(ash.settings_ash.ashpath+'/databases/basis_sets/cp2k/BASIS_MOLOPT', './BASIS')
         print_time_rel(module_init_time, modulename=f'CP2K run-prep6', moduleindex=2)
-        #Timing for Run-prep
+        # Timing for Run-prep
         print_time_rel(module_init_time, modulename=f'CP2K run-prep', moduleindex=2)
 
-        #Run CP2K
+        # Run CP2K
         if self.parallelization == 'Mixed':
             run_CP2K(self.cp2kdir,self.cp2k_bin_name,self.filename,numcores=self.numcores,paramethod=self.parallelization,
                      mixed_mpi_procs=self.mixed_mpi_procs, mixed_omp_threads=self.mixed_omp_threads)
         else:
             run_CP2K(self.cp2kdir,self.cp2k_bin_name,self.filename,numcores=self.numcores,paramethod=self.parallelization)
 
-
-        #Grab energy
+        # Grab energy
         self.energy=grab_energy_cp2k(self.filename+'.out',method=self.method)
         print(f"Single-point {self.theorynamelabel} energy:", self.energy)
         print(BC.OKBLUE, BC.BOLD, f"------------ENDING {self.theorynamelabel} INTERFACE-------------", BC.END)
 
-        #Grab gradient if calculated
+        # Grab gradient if calculated
         if Grad is True:
-            #Grab gradient
+            # Grab gradient
             self.gradient = grab_gradient_CP2K(f'ash-{self.filename}-1_0.xyz',len(current_coords))
-            #Grab PCgradient from file
+            # Grab stress tensor
+            if self.stress_tensor is True:
+                self.stress = get_stress_tensor(f"ash-{self.filename}-1_0.stress_tensor")
+                print("stress:", self.stress)
+            # Grab PCgradient from file
             if PC is True:
                 self.pcgradient = grab_pcgradient_CP2K(f'ash-{self.filename}-1_0.xyz',len(MMcharges),len(current_coords))
                 print_time_rel(module_init_time, modulename=f'{self.theorynamelabel} run', moduleindex=2)
@@ -526,7 +540,8 @@ class CP2KTheory:
             else:
                 print_time_rel(module_init_time, modulename=f'{self.theorynamelabel} run', moduleindex=2)
                 return self.energy, self.gradient
-        #Returning energy without gradient
+
+        # Returning energy without gradient
         else:
             print_time_rel(module_init_time, modulename=f'{self.theorynamelabel} run', moduleindex=2)
             return self.energy
@@ -578,6 +593,7 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
                     mgrid_commensurate=False, scf_maxiter=50, outer_scf_maxiter=10,
                     scf_guess='RESTART', scf_convergence=1e-6, eps_default=1e-10,
                     periodic_type="XYZ", cell_dimensions=None, cell_vectors=None,
+                    stress_tensor=False, stress_tensor_algo='DIAGONAL_ANALYTICAL',
                     kpoint_settings=None,
                     qm_cell_dims=None, qm_periodic_type=None, 
                     xtb_periodic=False, xtb_type='GFN2', xtb_tblite=False,
@@ -630,11 +646,17 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
         #FORCE_EVAL
         ####################
         inpfile.write(f'&FORCE_EVAL\n')
+        if stress_tensor is True:
+            inpfile.write(f'  STRESS_TENSOR {stress_tensor_algo}\n')
         inpfile.write(f'  METHOD {method}\n')
         inpfile.write(f'  &PRINT\n')
         inpfile.write(f'    &FORCES\n')
         inpfile.write(f'      FILENAME {filename}\n')
         inpfile.write(f'    &END FORCES\n')
+        if stress_tensor is True:
+            inpfile.write(f'    &STRESS_TENSOR\n')
+            inpfile.write(f'      FILENAME {filename}\n')
+            inpfile.write(f'    &END STRESS_TENSOR\n')
         inpfile.write(f'  &END PRINT\n\n')
 
         ##########
@@ -693,8 +715,8 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
                     inpfile.write(f'          &TBLITE\n')
                     inpfile.write(f'            METHOD {xtb_type}\n')
                     inpfile.write(f'          &END\n')
-                else:
-                    inpfile.write(f'          GFN_TYPE  {xtbcode}\n') #NOTE
+                #else:
+                #    inpfile.write(f'          GFN_TYPE  {xtbcode}\n') #NOTE
                 inpfile.write(f'          CHECK_ATOMIC_CHARGES F\n')
                 inpfile.write(f'          DO_EWALD  {xtb_periodic}\n') #NOTE
                 inpfile.write(f'          USE_HALOGEN_CORRECTION T\n') #NOTE
@@ -800,10 +822,10 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
         #CELL BLOCK
         inpfile.write(f'    &CELL\n')
         #This should be the total system cell size
-        if cell_dimensions != None:
+        if cell_dimensions is not None:
             inpfile.write(f'      ABC {cell_dimensions[0]} {cell_dimensions[1]} {cell_dimensions[2]}\n')
             inpfile.write(f'      ALPHA_BETA_GAMMA {cell_dimensions[3]} {cell_dimensions[4]} {cell_dimensions[5]}\n')
-        elif cell_vectors != None:
+        elif cell_vectors is not None:
             inpfile.write(f'      A {cell_vectors[0][0]} {cell_vectors[0][1]} {cell_vectors[0][2]}\n')
             inpfile.write(f'      B {cell_vectors[1][0]} {cell_vectors[1][1]} {cell_vectors[1][2]}\n')
             inpfile.write(f'      C {cell_vectors[2][0]} {cell_vectors[2][1]} {cell_vectors[2][2]}\n')
@@ -947,3 +969,27 @@ def find_cp2k(cp2kdir, cp2k_bin_name):
     print("Note: Make sure the cp2k binaries are in your PATH and named correctly")
     ashexit()
     return
+
+def get_stress_tensor(file):
+    grab=False
+    stress=np.zeros((3,3))
+    with open(file) as f:
+        for line in f:
+            if ' STRESS| 1/3 Trace' in line:
+                grab=False
+            if grab:
+                if ' STRESS|      x' in line:
+                    stress[0,0] = line.split()[2]
+                    stress[0,1] = line.split()[3]
+                    stress[0,2] = line.split()[4]
+                if ' STRESS|      y' in line:
+                    stress[1,0] = line.split()[2]
+                    stress[1,1] = line.split()[3]
+                    stress[1,2] = line.split()[4]
+                if ' STRESS|      z' in line:
+                    stress[2,0] = line.split()[2]
+                    stress[2,1] = line.split()[3]
+                    stress[2,2] = line.split()[4]
+            if 'Analytical stress tensor' in line:
+                grab=True
+    return stress
