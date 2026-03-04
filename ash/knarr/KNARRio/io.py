@@ -125,12 +125,12 @@ def WriteXYZ(fname, ndim, rxyz, symb, energy=None):
     with open(fname, "w") as f:
         f.write(str(ndim / 3) + '\n')
         if energy is not None:
-            f.write('E=%12.8lf\n' % energy)
+            f.write('E=%12.8lf\n' % energy.item())
         else:
             f.write('\n')
 
         for j in range(0, ndim, 3):
-            f.write('%s %12.8f %12.8f %12.8f\n' % (symb[j], rxyz[j + 0], rxyz[j + 1], rxyz[j + 2]))
+            f.write('%s %12.8f %12.8f %12.8f\n' % (symb[j], rxyz[j + 0].item(), rxyz[j + 1].item(), rxyz[j + 2].item()))
     return None
 
 
@@ -143,16 +143,16 @@ def WriteXYZF(fname, ndim, rxyz, symb, energy=None, fxyz=None):
     with open(fname, "w") as f:
         f.write(str(ndim / 3) + '\n')
         if energy is not None:
-            f.write('E=%12.8lf\n' % energy)
+            f.write('E=%12.8lf\n' % energy.item())
         else:
             f.write('\n')
         if fxyz is None:
             for j in range(0, ndim, 3):
-                f.write('%s %12.8f %12.8f %12.8f\n' % (symb[j], rxyz[j + 0], rxyz[j + 1], rxyz[j + 2]))
+                f.write('%s %12.8f %12.8f %12.8f\n' % (symb[j], rxyz[j + 0].item(), rxyz[j + 1].item(), rxyz[j + 2].item()))
         else:
             for j in range(0, ndim, 3):
-                f.write('%s %12.8f %12.8f %12.8f %12.8f %12.8f %12.8f\n' % (symb[j], rxyz[j + 0], rxyz[j + 1], rxyz[j + 2],
-                                                       fxyz[j + 0], fxyz[j + 1], fxyz[j + 2]))
+                f.write('%s %12.8f %12.8f %12.8f %12.8f %12.8f %12.8f\n' % (symb[j], rxyz[j + 0].item(), rxyz[j + 1].item(), rxyz[j + 2].item(),
+                                                       fxyz[j + 0].item(), fxyz[j + 1].item(), fxyz[j + 2].item()))
 
     return None
 
@@ -417,7 +417,7 @@ def WriteEnergyFile(fname, energy, nim=None):
         else:
             assert len(energy) == nim
             for i in range(nim):
-                f.write('%12.8lf \n' % energy[i])
+                f.write('%12.8lf \n' % energy[i].item())
 
     return None
 

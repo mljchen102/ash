@@ -44,8 +44,8 @@ def GenerateVibrTrajectory(fname, ndim, R, symb, w, npts=40, A=1.0):
             f.write('%i\n\n' % (ndim / 3))
             for j in range(0, ndim, 3):
                 f.write('%s %12.8f %12.8f %12.8f  \n' \
-                        % (symb[j], dx[k] * w[j] + R[j], dx[k] * w[j + 1] + R[j + 1],
-                           dx[k] * w[j + 2] + R[j + 2]))
+                        % (symb[j], dx[k] * w[j].item() + R[j].item(), dx[k] * w[j + 1].item() + R[j + 1].item(),
+                           dx[k] * w[j + 2].item() + R[j + 2].item()))
     return None
 
 
