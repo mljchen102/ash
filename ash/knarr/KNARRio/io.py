@@ -308,11 +308,11 @@ def WritePath(fname, ndimIm, nim, rxyz, symb, energy=None):
             if energy is None:
                 f.write('\n')
             else:
-                f.write('% 8.6f \n' % energy[i])
+                f.write('% 8.6f \n' % energy[i].item())
 
             for j in range(0, ndimIm, 3):
                 z = i * ndimIm + j
-                f.write('%2s % 12.8f % 12.8f % 12.8f\n' % (symb[z], rxyz[z], rxyz[z + 1], rxyz[z + 2]))
+                f.write('%2s % 12.8f % 12.8f % 12.8f\n' % (symb[z], rxyz[z].item(), rxyz[z + 1].item(), rxyz[z + 2].item()))
     return None
 
 
@@ -323,11 +323,11 @@ def WriteTraj(fname, ndimIm, nim, rxyz, symb, energy=None):
             if energy is None:
                 f.write('\n')
             else:
-                f.write('%8.6lf \n' % energy[i])
+                f.write('%8.6lf \n' % energy[i].item())
 
             for j in range(0, ndimIm, 3):
                 z = i * ndimIm + j
-                f.write('%2s % 12.8f % 12.8f % 12.8f\n' % (symb[z], rxyz[z], rxyz[z + 1], rxyz[z + 2]))
+                f.write('%2s % 12.8f % 12.8f % 12.8f\n' % (symb[z], rxyz[z].item(), rxyz[z + 1].item(), rxyz[z + 2].item()))
     return None
 
 
@@ -336,7 +336,7 @@ def WriteSingleImageTraj(fname, ndim, rxyz, symb, E):
         f.write(str(ndim / 3) + '\n')
         f.write('%8.6lf \n' % E)
         for j in range(0, ndim, 3):
-            f.write('%2s % 12.8lf % 12.8lf % 12.8lf\n' % (symb[j], rxyz[j + 0], rxyz[j + 1], rxyz[j + 2]))
+            f.write('%2s % 12.8lf % 12.8lf % 12.8lf\n' % (symb[j], rxyz[j + 0].item(), rxyz[j + 1].item(), rxyz[j + 2].item()))
     return None
 
 
