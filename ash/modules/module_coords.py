@@ -4203,3 +4203,59 @@ def define_dummy_topology(elems,scale=1.0, tol=0.1, resname="MOL"):
             atomname = f"{el}{atomnames_dict[el]}"
             pdb_topology.addAtom(atomname, element, residue)
         return pdb_topology
+
+
+def cell_params_to_vectors(parameters):
+    a, b, c, alpha, beta, gamma = parameters
+    # Convert angles to radians
+    rad_a = np.radians(alpha)
+    rad_b = np.radians(beta)
+    rad_g = np.radians(gamma)
+    
+    # Calculate components
+    ax = a
+    ay = 0.0
+    az = 0.0
+    
+    bx = b * np.cos(rad_g)
+    by = b * np.sin(rad_g)
+    bz = 0.0
+    
+    cx = c * np.cos(rad_b)
+    cy = c * (np.cos(rad_a) - np.cos(rad_b) * np.cos(rad_g)) / np.sin(rad_g)
+    cz = np.sqrt(c**2 - cx**2 - cy**2)
+    
+    vectors = np.array([[ax,ay,az],[bx,by,bz],[cx,cy,cz]])
+    print("vectors:", vectors)
+    return vectors
+
+def cell_vectors_to_params(vectors):
+    va, vb, vc = vectors[0], vectors[1], vectors[2]
+    
+    # Calculate lengths (norms)
+    a = np.linalg.norm(va)
+    b = np.linalg.norm(vb)
+    c = np.linalg.norm(vc)
+    
+    # Calculate angles using the dot product formula: 
+    # cos(theta) = (v1 . v2) / (|v1| * |v2|)
+    alpha_rad = np.arccos(np.dot(vb, vc) / (b * c))
+    beta_rad  = np.arccos(np.dot(va, vc) / (a * c))
+    gamma_rad = np.arccos(np.dot(va, vb) / (a * b))
+    
+    # Convert radians to degrees
+    alpha = np.degrees(alpha_rad)
+    beta  = np.degrees(beta_rad)
+    gamma = np.degrees(gamma_rad)
+    
+    return [float(a), float(b), float(c), float(alpha), float(beta), float(gamma)]
+
+# Basic conversion of Cartesian coordinates to fractional coordinates and reverse
+def cart_coords_to_fract(coords,cell_vectors):
+    h_inv = np.linalg.inv(cell_vectors)
+    fract_coords = np.dot(coords, h_inv.T)
+    return fract_coords
+
+def fract_coords_to_cart(fract_coords,cell_vectors):
+    cart_coords = np.dot(fract_coords, cell_vectors.T)
+    return cart_coords

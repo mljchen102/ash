@@ -173,7 +173,7 @@ import ash.modules.module_molcrys
 from .modules.module_molcrys import molcrys, Fragmenttype
 
 # Geometry optimization
-from .functions.functions_optimization import SimpleOpt, BernyOpt
+from .functions.functions_optimization import SimpleOpt, BernyOpt, periodic_optimizer
 from .interfaces.interface_dlfind import DLFIND_optimizer
 
 # geomeTRIC interface

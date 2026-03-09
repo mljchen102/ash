@@ -39,7 +39,7 @@ element_radii_for_cp2k = {'H': 0.44, 'He': 0.44, 'Li': 0.6, 'Be': 0.6,
 class CP2KTheory:
     def __init__(self, cp2kdir=None, cp2k_bin_name=None, filename='cp2k', printlevel=2, basis_dict=None, potential_dict=None, label="CP2K",
                 periodic=False, periodic_type='XYZ', qm_periodic_type=None, stress_tensor=False, stress_tensor_algo="DIAGONAL_ANALYTICAL",
-                xtb_periodic=False, xtb_type='GFN2', xtb_tblite=False,
+                xtb_type='GFN2', xtb_tblite=False,
                 user_input_dft=None, vdwpotential=None,
                 cell_dimensions=None, cell_vectors=None,
                 qm_cell_dims=None, qm_cell_shift_par=6.0, wavelet_scf_type=40,
@@ -78,33 +78,47 @@ class CP2KTheory:
             else:
                 print("xtb_tblite False. Using built-in version of xTB.")
             print("xtb_type:", xtb_type)
-            print("xtb_periodic:", xtb_periodic)
 
         # NOTE: We still define a cell even though we may not be doing periodic calc
         # If no cell provided: CONTINUE and guess cell size later
         if cell_dimensions is None and cell_vectors is None:
             print("Warning: Neither cell_dimensions or cell_vectors have been provided.")
-            print("This is not good but ASH will continue and try to guess the cell size from the QM-coordinates")
+            print("This is non-ideal but ASH will continue and try to guess the cell size from the QM-coordinates")
 
         if cell_dimensions is not None and cell_vectors is not None:
             print("Error: cell_dimensions and cell_vectors can not both be provided")
             ashexit()
-        #PERIODIC logic
+        # PERIODIC logic
+        self.xtb_periodic=False
         if periodic is True:
             print("Periodic is True")
+            if basis_method.upper() == "XTB":
+                print("Setting xtb_periodic to be True")
+                self.xtb_periodic=True
             self.periodic_type=periodic_type
             print("Periodic type:", self.periodic_type)
             if psolver.upper() == 'MT':
                 print("Error: For periodic simulations the Poisson solver (psolver) can not be MT.")
                 ashexit()
+
+            if cell_dimensions is not None:
+                print("periodic_cell_dimensions:", cell_dimensions)
+                self.periodic_cell_dimensions = cell_dimensions
+                # Convert to cell vectors
+                from ash.modules.module_coords import cell_params_to_vectors
+                self.periodic_cell_vectors = cell_params_to_vectors(cell_dimensions)
+            elif cell_vectors is not None:
+                self.periodic_cell_vectors = cell_vectors
+                from ash.modules.module_coords import cell_vectors_to_params
+                self.periodic_cell_dimensions = cell_vectors_to_params(cell_vectors)
         else:
             print("Periodic is False")
             self.periodic_type='NONE'
             print("PERIODIC_TYPE:", self.periodic_type)
 
-        #Parallelization
+        # Parallelization
         self.numcores=numcores
-        #Type of parallelization strategy. 'OMP','MPI','Mixed'
+        # Type of parallelization strategy. 'OMP','MPI','Mixed'
         self.parallelization=parallelization
         self.mixed_mpi_procs=mixed_mpi_procs #Mixed only:
         self.mixed_omp_threads=mixed_omp_threads #Mixed only:
@@ -187,7 +201,6 @@ class CP2KTheory:
         self.psolver=psolver
         self.wavelet_scf_type=wavelet_scf_type
         self.qm_periodic_type=qm_periodic_type
-        self.xtb_periodic=xtb_periodic # Boolean, xtB Ewald True or False
         self.xtb_type=xtb_type # xTB method to use. Options: 'GFN2', 'GFN1', 'GFN0'
         self.xtb_tblite=xtb_tblite # Boolean, whether to use the tblite-library version of xTB
         # self.cell_length=cell_length #Total cell length (full system including MM if QM/MM)
@@ -247,7 +260,6 @@ class CP2KTheory:
         print("Periodic:", self.periodic)
         print("Periodic type:", self.periodic_type)
         print("QM periodic type:", self.qm_periodic_type)
-        print("XTB periodic:", self.xtb_periodic)
         print("Cell dimensions:", self.cell_dimensions)
         print("Cell vectors:", self.cell_vectors)
         print("QM cell dimensions:", self.qm_cell_dims)
@@ -275,8 +287,23 @@ class CP2KTheory:
     #Set numcores method
     def set_numcores(self,numcores):
         self.numcores=numcores
+
     def cleanup():
         print(f"self.theorynamelabel cleanup not yet implemented.")
+
+    # Update cell using either periodic_cell_vectors or periodic_cell_dimensions
+    def update_cell(self,periodic_cell_vectors=None, periodic_cell_dimensions=None):
+        print("Updating cell vectors")
+        if periodic_cell_vectors is not None:
+            self.periodic_cell_vectors = periodic_cell_vectors
+
+            from ash.modules.module_coords import cell_vectors_to_params
+            self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+        elif periodic_cell_dimensions is not None:
+            self.periodic_cell_dimensions=periodic_cell_dimensions
+
+            from ash.modules.module_coords import cell_params_to_vectors
+            self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
 
     # Run function. Takes coords, elems etc. arguments and computes E or E+G.
     def run(self, current_coords=None, current_MM_coords=None, MMcharges=None, qm_elems=None, mm_elems=None,
@@ -326,7 +353,7 @@ class CP2KTheory:
         print("QM periodic type:", self.qm_periodic_type)
         print("Poisson solver", self.psolver)
 
-        print_time_rel(module_init_time, modulename=f'CP2K run-prep1', moduleindex=2)
+        #print_time_rel(module_init_time, modulename=f'CP2K run-prep1', moduleindex=2)
         #Case: QM/MM CP2K job
         if PC is True:
             print("PC true")
@@ -353,7 +380,7 @@ class CP2KTheory:
             if self.cell_vectors is not None:
                 print("cell_vectors:", self.cell_vectors)
 
-            print_time_rel(module_init_time, modulename=f'CP2K run-prep2', moduleindex=2)
+            #print_time_rel(module_init_time, modulename=f'CP2K run-prep2', moduleindex=2)
             #QM-CELL
             if self.qm_cell_dims is None:
                 print("Warning: QM-cell box dimensions have not been set by user (qm_cell_dims keyword)")
@@ -380,9 +407,9 @@ class CP2KTheory:
             dummy_coords = np.concatenate((current_coords,current_MM_coords),axis=0)
             dummy_charges = [0.0]*len(qm_elems) + MMcharges
             system_xyzfile="system_cp2k"
-            print_time_rel(module_init_time, modulename=f'CP2K run-prep3a', moduleindex=2)
+            #print_time_rel(module_init_time, modulename=f'CP2K run-prep3a', moduleindex=2)
             write_xyzfile(dummy_elem_list, dummy_coords, f"{system_xyzfile}", printlevel=1)
-            print_time_rel(module_init_time, modulename=f'CP2K run-prep3b', moduleindex=2)
+            #print_time_rel(module_init_time, modulename=f'CP2K run-prep3b', moduleindex=2)
             #Telling CP2K which atoms are QM
             #Dictionary with QM-atom indices (for full system), grouped by element
             qm_kind_dict={}
@@ -406,7 +433,7 @@ class CP2KTheory:
             with open("charges.inc", 'w') as incfile:
                 incfile.writelines(all_charges_lines)
 
-            print_time_rel(module_init_time, modulename=f'CP2K run-prep4c', moduleindex=2)
+            #print_time_rel(module_init_time, modulename=f'CP2K run-prep4c', moduleindex=2)
             #3. Write CP2K QM/MM inputfile
             write_CP2K_input(method='QMMM', jobname='ash', center_coords=self.center_coords, qm_elems=qm_elems,
                              basis_dict=self.basis_dict, potential_dict=self.potential_dict,
@@ -416,9 +443,8 @@ class CP2KTheory:
                              coordfile=system_xyzfile,
                              stress_tensor=self.stress_tensor, stress_tensor_algo=self.stress_tensor_algo,
                              user_input_dft=self.user_input_dft, vdwpotential=self.vdwpotential,
-                             cell_dimensions=self.cell_dimensions,
                              kpoint_settings=self.kpoint_settings,
-                             cell_vectors=self.cell_vectors,
+                             cell_vectors=self.periodic_cell_vectors,
                              qm_cell_dims=self.qm_cell_dims, qm_periodic_type=self.qm_periodic_type,
                              xtb_periodic=self.xtb_periodic, xtb_type=self.xtb_type, xtb_tblite=self.xtb_tblite,
                              basis_file=self.basis_file,
@@ -467,8 +493,7 @@ class CP2KTheory:
                              scf_maxiter=self.scf_maxiter, outer_scf_maxiter=self.outer_scf_maxiter,
                              periodic_type=self.periodic_type,
                              xtb_periodic=self.xtb_periodic, xtb_type=self.xtb_type,xtb_tblite=self.xtb_tblite,
-                             cell_dimensions=self.cell_dimensions, 
-                             cell_vectors=self.cell_vectors,
+                             cell_vectors=self.periodic_cell_vectors,
                              basis_file=self.basis_file, potential_file=self.potential_file,
                              psolver=self.psolver, printlevel=self.printlevel,
                              OT=self.OT, OT_minimizer=self.OT_minimizer, OT_preconditioner=self.OT_preconditioner, OT_linesearch=self.OT_linesearch,
@@ -484,7 +509,7 @@ class CP2KTheory:
             os.remove(f'ash-{self.filename}-1_0.stress_tensor')
         except:
             pass
-        print_time_rel(module_init_time, modulename=f'CP2K run-prep5', moduleindex=2)
+        #print_time_rel(module_init_time, modulename=f'CP2K run-prep5', moduleindex=2)
         # Check for BASIS and POTENTIAL FILES before calling
         print("Checking if POTENTIAL file exists in current dir")
         if os.path.isfile("POTENTIAL") is True:
@@ -508,7 +533,7 @@ class CP2KTheory:
             else:
                 print("No file found in parent dir. Using basis set file from ASH. Copying to dir as BASIS")
                 shutil.copyfile(ash.settings_ash.ashpath+'/databases/basis_sets/cp2k/BASIS_MOLOPT', './BASIS')
-        print_time_rel(module_init_time, modulename=f'CP2K run-prep6', moduleindex=2)
+        #print_time_rel(module_init_time, modulename=f'CP2K run-prep6', moduleindex=2)
         # Timing for Run-prep
         print_time_rel(module_init_time, modulename=f'CP2K run-prep', moduleindex=2)
 
@@ -531,7 +556,10 @@ class CP2KTheory:
             # Grab stress tensor
             if self.stress_tensor is True:
                 self.stress = get_stress_tensor(f"ash-{self.filename}-1_0.stress_tensor")
-                print("stress:", self.stress)
+                print("self.stress:", self.stress)
+                #exit()
+                self.cell_gradient = stress_to_cell_gradient(self.periodic_cell_vectors,self.stress)
+                print("self.cell_gradient:", self.cell_gradient)
             # Grab PCgradient from file
             if PC is True:
                 self.pcgradient = grab_pcgradient_CP2K(f'ash-{self.filename}-1_0.xyz',len(MMcharges),len(current_coords))
@@ -592,7 +620,7 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
                     charge=None, mult=None, basis_method='GAPW',
                     mgrid_commensurate=False, scf_maxiter=50, outer_scf_maxiter=10,
                     scf_guess='RESTART', scf_convergence=1e-6, eps_default=1e-10,
-                    periodic_type="XYZ", cell_dimensions=None, cell_vectors=None,
+                    periodic_type="XYZ", cell_vectors=None,
                     stress_tensor=False, stress_tensor_algo='DIAGONAL_ANALYTICAL',
                     kpoint_settings=None,
                     qm_cell_dims=None, qm_periodic_type=None, 
@@ -715,8 +743,8 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
                     inpfile.write(f'          &TBLITE\n')
                     inpfile.write(f'            METHOD {xtb_type}\n')
                     inpfile.write(f'          &END\n')
-                #else:
-                #    inpfile.write(f'          GFN_TYPE  {xtbcode}\n') #NOTE
+                else:
+                    inpfile.write(f'          GFN_TYPE  {xtbcode}\n') #NOTE
                 inpfile.write(f'          CHECK_ATOMIC_CHARGES F\n')
                 inpfile.write(f'          DO_EWALD  {xtb_periodic}\n') #NOTE
                 inpfile.write(f'          USE_HALOGEN_CORRECTION T\n') #NOTE
@@ -822,10 +850,10 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
         #CELL BLOCK
         inpfile.write(f'    &CELL\n')
         #This should be the total system cell size
-        if cell_dimensions is not None:
-            inpfile.write(f'      ABC {cell_dimensions[0]} {cell_dimensions[1]} {cell_dimensions[2]}\n')
-            inpfile.write(f'      ALPHA_BETA_GAMMA {cell_dimensions[3]} {cell_dimensions[4]} {cell_dimensions[5]}\n')
-        elif cell_vectors is not None:
+        #if cell_dimensions is not None:
+        #    inpfile.write(f'      ABC {cell_dimensions[0]} {cell_dimensions[1]} {cell_dimensions[2]}\n')
+        #    inpfile.write(f'      ALPHA_BETA_GAMMA {cell_dimensions[3]} {cell_dimensions[4]} {cell_dimensions[5]}\n')
+        if cell_vectors is not None:
             inpfile.write(f'      A {cell_vectors[0][0]} {cell_vectors[0][1]} {cell_vectors[0][2]}\n')
             inpfile.write(f'      B {cell_vectors[1][0]} {cell_vectors[1][1]} {cell_vectors[1][2]}\n')
             inpfile.write(f'      C {cell_vectors[2][0]} {cell_vectors[2][1]} {cell_vectors[2][2]}\n')
@@ -993,3 +1021,21 @@ def get_stress_tensor(file):
             if 'Analytical stress tensor' in line:
                 grab=True
     return stress
+
+
+# Convert stress tensor to cell gradient
+def stress_to_cell_gradient(lattice_matrix, stress_tensor):
+    # convert lattice to Bohr
+    h = np.asarray(lattice_matrix) * ash.constants.ang2bohr
+
+    # convert stress to Eh/Bohr^3
+    BAR_TO_EH_PER_BOHR3 = 3.398931e-9
+    sigma = np.asarray(stress_tensor) * BAR_TO_EH_PER_BOHR3
+
+    # cell volume
+    V = np.linalg.det(h)
+
+    # compute gradient
+    grad = -1*V * sigma @ np.linalg.inv(h).T
+
+    return grad

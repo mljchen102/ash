@@ -5,8 +5,9 @@ import os
 import ash.constants
 from ash.functions.functions_general import ashexit, blankline,print_time_rel_and_tot,BC,listdiff
 from ash.modules.module_coords import write_xyzfile
-from ash.modules.module_coords import check_charge_mult
+from ash.modules.module_coords import check_charge_mult, cell_vectors_to_params, cell_params_to_vectors, cart_coords_to_fract, fract_coords_to_cart
 from ash.modules.module_coords import print_coords_for_atoms
+from ash.interfaces.interface_geometric_new import geomeTRICOptimizer
 #import ash
 
 
@@ -444,75 +445,132 @@ def BernyOpt(theory,fragment, charge=None, mult=None):
     blankline()
 
 
-# Preliminary cell-vector optimization routines
-# Takes lattice vectors and stress tensor and return gradient
-def get_cell_gradients(lattice_matrix, stress_tensor_gpa, external_pressure_gpa=0.0, return_type='matrix'):
-    """
-    Calculates cell gradients from a stress tensor provided in GPa.
-    
-    Parameters:
-    -----------
-    lattice_matrix : np.ndarray (3, 3)
-        The cell matrix where columns are the lattice vectors [a, b, c] in Angstroms.
-    stress_tensor_gpa : np.ndarray (3, 3)
-        The symmetric stress tensor in GPa.
-    external_pressure_gpa : float
-        External pressure in GPa (subtracted from the internal stress).
-    return_type : str
-        'matrix' -> returns (3, 3) dE/dH in eV/Angstrom
-        'parameters' -> returns list [de_da, de_db, de_dc, de_dalpha, de_dbeta, de_dgamma]
-    """
-    
-    # 1. Conversion Constant: 1 GPa = 0.006241509 eV/Angstrom^3
-    GPA_TO_EV_ANG3 = 1.0 / 160.21766208
-    
-    # 2. Convert Stress and Pressure to eV/Angstrom^3
-    sigma_ev = stress_tensor_gpa * GPA_TO_EV_ANG3
-    p_ext_ev = external_pressure_gpa * GPA_TO_EV_ANG3
-    
-    # 3. Calculate Volume (Omega) in Angstrom^3
-    volume = np.linalg.det(lattice_matrix)
-    
-    # 4. Total Stress (Internal Stress + External Pressure)
-    # Note: Optimization minimizes Enthalpy H = E + PV. 
-    # The gradient dH/dh includes the P_ext term.
-    sigma_tot = sigma_ev + p_ext_ev * np.eye(3)
-    
-    # 5. Matrix Gradient: dE/dH = Volume * Stress * (H^-1).T
-    # Units: [Ang^3] * [eV/Ang^3] * [1/Ang] = eV/Ang
-    inv_h_t = np.linalg.inv(lattice_matrix).T
-    de_dh = volume * np.dot(sigma_tot, inv_h_t)
-    
-    if return_type == 'matrix':
-        return de_dh
-    
-    elif return_type == 'parameters':
-        # Extract vectors and lengths
-        a_vec, b_vec, c_vec = lattice_matrix[:, 0], lattice_matrix[:, 1], lattice_matrix[:, 2]
-        a, b, c = np.linalg.norm(a_vec), np.linalg.norm(b_vec), np.linalg.norm(c_vec)
-        
-        # dE/dL (Length gradients in eV/Angstrom)
-        de_da = np.dot(de_dh[:, 0], a_vec / a)
-        de_db = np.dot(de_dh[:, 1], b_vec / b)
-        de_dc = np.dot(de_dh[:, 2], c_vec / c)
-        
-        # Helper for angle gradients (units: eV/radian)
-        def get_angle_grad(v1, v2, g1, g2):
-            n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
-            cos_theta = np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)
-            sin_theta = np.sqrt(1.0 - cos_theta**2)
-            
-            if sin_theta < 1e-8: 
-                return 0.0
-            
-            # Chain rule: dE/dTheta
-            dtheta_dv1 = (cos_theta * v1 / n1**2 - v2 / (n1 * n2)) / sin_theta
-            dtheta_dv2 = (cos_theta * v2 / n2**2 - v1 / (n1 * n2)) / sin_theta
-            
-            return np.dot(g1, dtheta_dv1) + np.dot(g2, dtheta_dv2)
+# PERIODIC OPTIMIZERS
 
-        de_dalpha = get_angle_grad(b_vec, c_vec, de_dh[:, 1], de_dh[:, 2])
-        de_dbeta  = get_angle_grad(a_vec, c_vec, de_dh[:, 0], de_dh[:, 2])
-        de_dgamma = get_angle_grad(a_vec, b_vec, de_dh[:, 0], de_dh[:, 1])
-        
-        return [de_da, de_db, de_dc, de_dalpha, de_dbeta, de_dgamma]
+# Very basic stupid one
+def simple_periodic_optimizer_SD(fragment=None, theory=None, rate=0.5, maxiter=50):
+    ang2bohr=1.88972612546
+    print("Learning rate:", rate)
+    print("maxiter:", maxiter)
+    for i in range(0,maxiter):
+        print("="*40)
+        print("Cell optimization step", i)
+        print("="*40)
+        # Only optimize atom coordinates
+        res = geomeTRICOptimizer(theory=theory, fragment=fragment)
+        print("cell vector step:")
+        # Take cell vector step
+        cell_vectors_au = theory.periodic_cell_vectors*ang2bohr - (rate * theory.cell_gradient)
+        cell_vectors = cell_vectors_au / ang2bohr
+        print("cell_vectors:", cell_vectors)
+        # Update Theory with new cell vectors
+        theory.update_cell(periodic_cell_vectors=cell_vectors)
+        print("theory.periodic_cell_vectors:", theory.periodic_cell_vectors)
+
+# More advanced periodic cell optimizer
+def periodic_optimizer(fragment=None, theory=None, rate=0.5, maxiter=50, tol=1e-3, step_algo="SD",
+                                force_orthorhombic=True, max_step=0.1, momentum=0.5):
+    ang2bohr=1.88972612546
+    print("Learning rate:", rate)
+    print("maxiter:", maxiter)
+
+    # Max step in bohrs (default = 0.1 Å = 0.188 bohrs)
+    print("Rate:", rate)
+    max_step_au = max_step*ang2bohr
+    print("force_orthorhombic:", force_orthorhombic)
+    print(f"Tolerance: {tol} Eh/Bohr")
+    print("Maxiter:", maxiter)
+    print(f"Max step size {max_step} Å")
+    print()
+    print(f"Initial cell vectors in Theory object: {theory.periodic_cell_vectors} Å")
+
+    cell_vectors_au = theory.periodic_cell_vectors*ang2bohr
+
+    # Looping
+    velocity = np.zeros((3, 3))
+    for i in range(0,maxiter):
+        print("="*40)
+        print("Cell optimization step", i)
+        print("="*40)
+        # Optimize atom coordinates with frozen cell
+        print("a) Will now optimize atom coordinates")
+        res = geomeTRICOptimizer(theory=theory, fragment=fragment)
+
+        # Check convergence of cell gradient
+        grad_norm = np.linalg.norm(theory.cell_gradient)
+        print(f"Current Cell Gradient Norm: {grad_norm:.6f}")
+        if grad_norm < tol:
+            print(f"Cell converged in {i} cell-iterations  (Gradient norm: {grad_norm:.6f} < tol={tol} Eh/Bohr)")
+            print(f"Final cell vectors: {cell_vectors} Å  and parameters: ({cell_vectors_to_params(cell_vectors)})")
+            print(f"Final energy: {res.energy} Eh")
+
+            # TODO: File-handling. Write POSCAR file or something else?
+            break
+
+        # Convert previously optimized Cart coords to Fract coords
+        fract_coords = cart_coords_to_fract(fragment.coords,theory.periodic_cell_vectors)
+
+        print("b) Will now take cell vector step")
+
+        # Calculate cell vector step (in Bohrs)
+        if step_algo =="SD":
+            print("Doing steepest descent step")
+            delta_au = - (rate * theory.cell_gradient)
+        elif step_algo == "damped-MD":
+            print("Doing momentum step")
+            print("velocity:", velocity)
+            velocity = (momentum * velocity) - (rate * theory.cell_gradient)
+            print("velocity:", velocity)
+            delta_au = velocity
+        elif step_algo == "nesterov":
+            # Storing old
+            velocity_old = velocity.copy()
+            print("Doing Nesterov momentum step")
+            velocity = (momentum * velocity) - (rate * theory.cell_gradient)
+            nesterov_update = -momentum * velocity_old + (1 + momentum) * velocity
+            delta_au = nesterov_update
+        elif step_algo == "cg":
+            print("Doing conjugate gradient step")
+            if i == 0:
+                search_dir = theory.cell_gradient
+            else:
+                # Polak-Ribière formula for beta
+                diff = theory.cell_gradient - prev_grad
+                beta = np.sum(theory.cell_gradient * diff) / np.sum(prev_grad * prev_grad)
+                beta = max(0, beta) # Standard 'reset' for CG
+                search_dir = theory.cell_gradient + (beta * search_dir)
+
+            delta_au = - (rate * search_dir)
+            prev_grad = theory.cell_gradient.copy()
+        else:
+            print("Unknown step_algo")
+            ashexit()
+
+
+        print("delta_au:", delta_au)
+
+        # Force orthorhomic
+        if force_orthorhombic:
+            print("force_orthorhombic True")
+            diagonal_mask = np.eye(3)
+            delta_au = delta_au*diagonal_mask
+
+        # Scale down step if required
+        if np.max(np.abs(delta_au)) > max_step_au:
+            print(f"Step scale down:  {np.max(np.abs(delta_au))}  > max_step_au: {max_step_au})")
+            delta_au = delta_au * (max_step / np.max(np.abs(delta_au)))
+            print("Actual step:", delta_au)
+
+        # Take step
+        cell_vectors_au += delta_au
+        # Convert final cell vectors from Bohrs to Ang
+        cell_vectors = cell_vectors_au / ang2bohr
+        print("cell_vectors:", cell_vectors)
+        # Update Theory with new cell vectors in Ang
+        theory.update_cell(periodic_cell_vectors=cell_vectors)
+        print("theory.periodic_cell_vectors:", theory.periodic_cell_vectors)
+
+        # Update fragment with new XYZ coords that match cell
+        new_cart_coords = fract_coords_to_cart(fract_coords,theory.periodic_cell_vectors)
+        print("new_cartesian_coords:", new_cart_coords)
+        fragment.coords=new_cart_coords

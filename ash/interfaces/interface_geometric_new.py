@@ -26,7 +26,8 @@ def geomeTRICOptimizer(theory=None, fragment=None, charge=None, mult=None, coord
                        constraints=None, constraintsinputfile=None, irc=False, rigid=False, enforce_constraints=None,
                        constrainvalue=False, maxiter=250, ActiveRegion=False, actatoms=None, NumGrad=False, 
                        convergence_setting=None, conv_criteria=None, print_atoms_list=None, TSOpt=False, hessian=None, partial_hessian_atoms=None,
-                       modelhessian=None, subfrctor=1, MM_PDB_traj_write=False, printlevel=2, result_write_to_disk=True):
+                       modelhessian=None, subfrctor=1, MM_PDB_traj_write=False, printlevel=2, result_write_to_disk=True,
+                       periodic_cell_opt=False):
     """
     Wrapper function around GeomeTRICOptimizerClass
     """
@@ -37,13 +38,14 @@ def geomeTRICOptimizer(theory=None, fragment=None, charge=None, mult=None, coord
         print("geomeTRICOptimizer requires theory and fragment objects provided. Exiting.")
         ashexit()
     #NOTE: Class does not take fragment and theory
-    optimizer=GeomeTRICOptimizerClass(charge=charge, mult=mult, coordsystem=coordsystem, frozenatoms=frozenatoms,
+    optimizer=GeomeTRICOptimizerClass(theory=theory, charge=charge, mult=mult, coordsystem=coordsystem, frozenatoms=frozenatoms,
                         maxiter=maxiter, ActiveRegion=ActiveRegion, actatoms=actatoms, TSOpt=TSOpt,
                         hessian=hessian, partial_hessian_atoms=partial_hessian_atoms,modelhessian=modelhessian,
                         constraintsinputfile=constraintsinputfile,irc=irc,rigid=rigid,enforce_constraints=enforce_constraints,
                         convergence_setting=convergence_setting, conv_criteria=conv_criteria,
                         print_atoms_list=print_atoms_list, subfrctor=subfrctor, MM_PDB_traj_write=MM_PDB_traj_write,
-                        printlevel=printlevel, force_coordsystem=force_coordsystem, result_write_to_disk=result_write_to_disk)
+                        printlevel=printlevel, force_coordsystem=force_coordsystem, result_write_to_disk=result_write_to_disk,
+                        periodic_cell_opt=periodic_cell_opt)
 
     # If NumGrad then we wrap theory object into NumGrad class object
     if NumGrad:
@@ -66,12 +68,12 @@ class GeomeTRICOptimizerClass:
                        convergence_setting=None, conv_criteria=None, TSOpt=False, hessian=None,
                        constraintsinputfile=None, irc=False,rigid=False,enforce_constraints=None,
                        print_atoms_list=None, partial_hessian_atoms=None, modelhessian=None,
-                       subfrctor=1, MM_PDB_traj_write=False, printlevel=2, force_coordsystem=False, result_write_to_disk=True):
+                       subfrctor=1, MM_PDB_traj_write=False, printlevel=2, force_coordsystem=False, result_write_to_disk=True,
+                       periodic_cell_opt=False):
 
             self.printlevel=printlevel
             print_line_with_mainheader("geomeTRICOptimizer initialization")
             print_if_level("Creating optimizer object", self.printlevel,2)
-
             ###############################
             # Going through user options
             ###############################
@@ -105,8 +107,18 @@ class GeomeTRICOptimizerClass:
             self.TSOpt=TSOpt
             self.subfrctor=subfrctor
 
-            #IRC
-            self.irc=irc
+            # PBC
+            if getattr(theory, "periodic", False):
+                print("Detected periodicity in Theory object")
+                print("Activating periodic routines ")
+                self.PBC=True
+                if periodic_cell_opt is True:
+                    print("Periodic cell optimization activated by keyword")
+            else:
+                print("Theory is not periodic")
+                self.PBC=False
+            # IRC
+            self.irc = irc
             # Rigid opt
             self.rigid=rigid
             # Enforce constraints option
@@ -572,7 +584,7 @@ class GeomeTRICOptimizerClass:
             ashengine = ASHengineclass(mol_geometric_frag,theory, ActiveRegion=self.ActiveRegion, actatoms=self.actatoms,
                 print_atoms_list=self.print_atoms_list, MM_PDB_traj_write=self.MM_PDB_traj_write,
                 charge=charge, mult=mult, conv_criteria=self.conv_criteria, fragment=fragment, printlevel=self.printlevel,
-                maxiter=self.maxiter)
+                maxiter=self.maxiter, PBC=self.PBC)
 
             # Defining args object, containing engine object
             final_geometric_args=geomeTRICArgsObject(ashengine,self.constraintsfile,coordsys=self.coordsystem,
@@ -685,7 +697,7 @@ class geomeTRICArgsObject:
 #Defining ASH engine class used to communicate with geomeTRIC
 class ASHengineclass:
     def __init__(self,geometric_molf, theory, ActiveRegion=False, actatoms=None,print_atoms_list=None, charge=None, mult=None, conv_criteria=None, fragment=None,
-        MM_PDB_traj_write=False, printlevel=2, maxiter=None):
+        MM_PDB_traj_write=False, printlevel=2, maxiter=None, PBC=False):
         #MM_PDB_traj_write on/off. Can be pretty big files
         self.MM_PDB_traj_write=MM_PDB_traj_write
         #Defining M attribute of engine object as geomeTRIC Molecule object
@@ -713,6 +725,9 @@ class ASHengineclass:
         self.conv_criteria=conv_criteria
         self.fragment=fragment
         self.printlevel=printlevel
+
+        # PBC
+        self.PBC=PBC
 
     def load_guess_files(self,dirname):
         if self.printlevel >= 1:
@@ -789,7 +804,6 @@ class ASHengineclass:
         if isinstance(self.theory,MicroIterativeclass):
             print("Micro-iterative option active")
             self.theory.engine=self
-
         print()
         #Updating coords in object
         #Need to combine with rest of full-system coords
@@ -798,6 +812,20 @@ class ASHengineclass:
         #print_time_rel(timeA, modulename='geometric ASHcalc.calc reshape', moduleindex=2)
         timeA=time.time()
         currcoords=self.M.xyzs[0]
+
+        # Call method to use
+        if self.ActiveRegion is True:
+            egdict = self.actregion_calc(currcoords)
+        elif self.PBC is True:
+            print("Doing PBC opt-step")
+            exit()
+            egdict =self.PBC_calc(currcoords)
+        else:
+            egdict = self.regular_calc(currcoords)
+
+        return egdict
+
+    def actregion_calc(self,currcoords):
         #Special act-region (for QM/MM) since GeomeTRIC does not handle huge system and constraints
         if self.ActiveRegion is True:
             #Defining full_coords as original coords temporarily
@@ -878,31 +906,52 @@ class ASHengineclass:
                 self.iteration_count=int(iteration)
             self.EG_count += 1
 
-
-
             return {'energy': E, 'gradient': Grad_act.flatten()}
-        else:
-            self.full_current_coords=currcoords
-            self.fragment.replace_coords(self.fragment.elems, self.full_current_coords, conn=False)
-            #PRINTING ACTIVE GEOMETRY IN EACH GEOMETRIC ITERATION
-            self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
-            #print("Current geometry (Å) in step {}".format(self.iteration_count))
-            if self.printlevel >= 1:
-                print(f"Current geometry (Å) in step {self.iteration_count} (print_atoms_list region)")
-                print("---------------------------------------------------")
-                print_coords_for_atoms(currcoords, self.fragment.elems, self.print_atoms_list)
-                print("")
-                print("Note: printed only print_atoms_list (this is not necessarily all atoms) ")
-            E,Grad=self.theory.run(current_coords=currcoords, elems=self.M.elem, charge=self.charge, mult=self.mult, Grad=True)
-            #label='Iter'+str(self.iteration_count)
-            # Read last line of geometric_OPTtraj.log to get step
-            step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
-            if len(step_lines) > 0:
-                iteration=step_lines[-1].split()[1]
-                self.iteration_count=int(iteration)
-            self.EG_count += 1
-            self.energy = E
-            return {'energy': E, 'gradient': Grad.flatten()}
+
+    # Basic calc: no actregion, no PBC
+    def regular_calc(self,currcoords):
+        self.full_current_coords=currcoords
+        self.fragment.replace_coords(self.fragment.elems, self.full_current_coords, conn=False)
+        #PRINTING ACTIVE GEOMETRY IN EACH GEOMETRIC ITERATION
+        self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
+        if self.printlevel >= 1:
+            print(f"Current geometry (Å) in step {self.iteration_count} (print_atoms_list region)")
+            print("---------------------------------------------------")
+            print_coords_for_atoms(currcoords, self.fragment.elems, self.print_atoms_list)
+            print("")
+            print("Note: printed only print_atoms_list (this is not necessarily all atoms) ")
+        E,Grad=self.theory.run(current_coords=currcoords, elems=self.M.elem, charge=self.charge, mult=self.mult, Grad=True)
+        # Read last line of geometric_OPTtraj.log to get step
+        step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
+        if len(step_lines) > 0:
+            iteration=step_lines[-1].split()[1]
+            self.iteration_count=int(iteration)
+        self.EG_count += 1
+        self.energy = E
+        return {'energy': E, 'gradient': Grad.flatten()}
+
+    # Test
+    def PBC_calc(self,currcoords):
+        self.full_current_coords=currcoords
+        self.fragment.replace_coords(self.fragment.elems, self.full_current_coords, conn=False)
+        #PRINTING ACTIVE GEOMETRY IN EACH GEOMETRIC ITERATION
+        self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
+        if self.printlevel >= 1:
+            print(f"Current geometry (Å) in step {self.iteration_count} (print_atoms_list region)")
+            print("---------------------------------------------------")
+            print_coords_for_atoms(currcoords, self.fragment.elems, self.print_atoms_list)
+            print("")
+            print("Note: printed only print_atoms_list (this is not necessarily all atoms) ")
+        E,Grad=self.theory.run(current_coords=currcoords, elems=self.M.elem, charge=self.charge, mult=self.mult, Grad=True)
+        # Read last line of geometric_OPTtraj.log to get step
+        step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
+        if len(step_lines) > 0:
+            iteration=step_lines[-1].split()[1]
+            self.iteration_count=int(iteration)
+        self.EG_count += 1
+        self.energy = E
+        return {'energy': E, 'gradient': Grad.flatten()}
+
 
 
 #Function Convert constraints indices to actatom indices

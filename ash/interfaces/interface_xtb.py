@@ -110,7 +110,8 @@ class gxTBTheory(Theory):
 class xTBTheory:
     def __init__(self, xtbdir=None, xtbmethod='GFN1', runmode='inputfile', numcores=1, printlevel=2, filename='xtb_',
                  maxiter=500, electronic_temp=300, label=None, accuracy=0.1, hardness_PC=1000, solvent=None,
-                 use_tblite=False, periodic=False, periodic_cell_dimensions=None, extraflag=None, grab_charges=False,
+                 use_tblite=False, periodic=False, periodic_cell_dimensions=None, periodic_cell_vectors=None,
+                 extraflag=None, grab_charges=False,
                  grab_BOs=False):
 
         self.theorytype="QM"
@@ -145,10 +146,26 @@ class xTBTheory:
         self.periodic_cell_dimensions=periodic_cell_dimensions
         if self.periodic is True:
             print("Periodic boundary conditions enabled. Will pass periodicity information to xtb")
-            if self.periodic_cell_dimensions is None:
-                print("Error: No periodic_cell_dimensions was passed yet periodic is True")
-                print("Please pass a list of box dimensions and angles as a list, e.g. periodic_cell_dimensions=[20.0,20.0,20.0, 90.0, 90.0,90.0]") 
+            if self.use_tblite is False:
+                self.use_tblite=True
+                print("Warning: PBC requires use of tblite library, enabling use_tblite and continuing.")
+            # What information to use
+            if periodic_cell_dimensions is None and periodic_cell_vectors is None:
+                print("Error: If periodic is True, either periodic_cell_dimensions or periodic_cell_vectors need to be set")
+                print("periodic_cell_dimensions: (a,b,c,alpha,beta,gamma) in units of Å and °")
+                print("periodic_cell_vectors: 3x3 array in units of Å")
                 ashexit()
+            elif periodic_cell_dimensions is not None and periodic_cell_vectors is not None:
+                print("Error: periodic_cell_dimensions and periodic_cell_vectors can not both be set")
+                ashexit()
+            elif periodic_cell_dimensions is not None:
+                print("periodic_cell_dimensions:", periodic_cell_dimensions)
+                # Convert to cell vectors
+                from ash.modules.module_coords import cell_params_to_vectors
+                self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+            elif periodic_cell_vectors is not None:
+                from ash.modules.module_coords import cell_vectors_to_params
+                self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
 
         # Controlling output in xtb-library
         if self.printlevel >= 3:
@@ -301,8 +318,7 @@ class xTBTheory:
                 # Write turbomole style coord file but in Angstrom and with PBC info
                 coordfile="xtb_coord"
                 ash.interfaces.interface_Turbomole.create_coord_file(elems,current_coords, write_unit='ANGS', 
-                                                                     periodic_info=self.periodic_cell_dimensions, filename=coordfile)
-                
+                                                                     periodic_info=self.periodic_cell_dimensions, filename=coordfile)      
             else:
                 # Write xyz_file if molecule
                 ash.modules.module_coords.write_xyzfile(elems, current_coords, self.filename, printlevel=self.printlevel)
@@ -418,6 +434,21 @@ class xTBTheory:
     #Method to grab dipole moment from an xtb outputfile (assumes run has been executed)
     def get_dipole_moment(self):
         return grab_dipole_moment(self.filename+'.out')
+
+    # Update cell using either periodic_cell_vectors or periodic_cell_dimensions
+    def update_cell(self,periodic_cell_vectors=None, periodic_cell_dimensions=None):
+        print("Updating cell vectors")
+        if periodic_cell_vectors is not None:
+            self.periodic_cell_vectors = periodic_cell_vectors
+
+            from ash.modules.module_coords import cell_vectors_to_params
+            self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+        elif periodic_cell_dimensions is not None:
+            self.periodic_cell_dimensions=periodic_cell_dimensions
+
+            from ash.modules.module_coords import cell_params_to_vectors
+            self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+
     def run(self, current_coords=None, current_MM_coords=None, MMcharges=None, qm_elems=None, mm_elems=None, printlevel=None,
                 elems=None, Grad=False, PC=False, numcores=None, label=None, charge=None, mult=None):
         module_init_time=time.time()
@@ -508,9 +539,12 @@ class xTBTheory:
                 self.BOs = grab_bondorder_matrix(len(qm_elems))
 
 
-            # Check if finished. Grab energy
+            # Check if finished. Grab energy, gradient, pcgradient, cellgradient
             if Grad is True:
                 self.energy,self.grad=xtbgradientgrab(num_qmatoms)
+                if self.periodic:
+                    self.cell_gradient = grab_latticegrad()
+                    print("cell_gradient:", self.cell_gradient)
                 if PC is True:
                     # Grab pointcharge gradient. i.e. gradient on MM atoms from QM-MM elstat interaction.
                     self.pcgrad = xtbpcgradientgrab(num_mmatoms)
@@ -1042,6 +1076,21 @@ def grabatomcharges_xTB():
             charges.append(float(line.split()[0]))
     return charges
 
+def grab_latticegrad(file="gradlatt"):
+    gradient = np.zeros((3, 3))
+    counter=0
+    with open(file) as f:
+        for i,line in enumerate(f):
+            if '$end' in line:
+                break
+            if i >= 5:
+                gradient[counter,0] = line.split()[0]
+                gradient[counter,1] = line.split()[1]
+                gradient[counter,2] = line.split()[2]
+                counter+=1
+    return gradient
+            
+
 
 #Grab xTB charges from outputfile. Choice between Mulliken and CM5
 def grabatomcharges_xTB_output(filename, chargemodel="CM5"):
@@ -1099,7 +1148,8 @@ def grab_bondorder_matrix(numatoms):
 # Interface to tbliteTheory
 class tbliteTheory(Theory):
     def __init__(self, method=None, printlevel=2, numcores=1, spinpol=False, solvation_method=None, solvent_name=None, solvent_eps=None,
-                 maxiter=500, electronic_temp=9.5e-4, accuracy=1.0, grab_BOs=False, grab_charges=False, grab_DM=False, autostart=True):
+                 maxiter=500, electronic_temp=9.5e-4, accuracy=1.0, grab_BOs=False, grab_charges=False, grab_DM=False, autostart=True,
+                 periodic=False, periodic_cell_dimensions=None, periodic_cell_vectors=None):
         super().__init__()
         print_line_with_mainheader("tblite INTERFACE")
         print("method:", method)
@@ -1135,6 +1185,32 @@ class tbliteTheory(Theory):
         print("Setting number of cores for tblite to: OMP_NUM_THREADS=", numcores)
         os.environ['OMP_NUM_THREADS'] = str(numcores)
 
+        # Periodic boundary conditions
+        self.periodic=periodic
+        if self.periodic:
+            print("Periodic boundary conditions enabled")
+            self.periodic_dims=np.array([True,True,True])
+            if periodic_cell_dimensions is None and periodic_cell_vectors is None:
+                print("Error: If periodic is True, either periodic_cell_dimensions or periodic_cell_vectors need to be set")
+                print("periodic_cell_dimensions: (a,b,c,alpha,beta,gamma) in units of Å and °")
+                print("periodic_cell_vectors: 3x3 array in units of Å")
+                ashexit()
+            elif periodic_cell_dimensions is not None and periodic_cell_vectors is not None:
+                print("Error: periodic_cell_dimensions and periodic_cell_vectors can not both be set")
+                print("periodic_cell_dimensions: (a,b,c,alpha,beta,gamma) in units of Å and °")
+                print("periodic_cell_vectors: 3x3 array in units of Å")
+                ashexit()
+            elif periodic_cell_dimensions is not None:
+                print("periodic_cell_dimensions:", periodic_cell_dimensions)
+                # Convert to cell vectors
+                from ash.modules.module_coords import cell_params_to_vectors
+                self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+            else:
+                self.periodic_cell_vectors = periodic_cell_vectors
+                from ash.modules.module_coords import cell_vectors_to_params
+                self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+            # Note: using cell vectors
+            print("Cell vectors (Å)", self.periodic_cell_vectors)
         try:
             import tblite
         except Exception as e:
@@ -1145,7 +1221,19 @@ class tbliteTheory(Theory):
             print("  mamba install tblite-python")
             print("Full error message:", e)
             ashexit(code=9)
+    # Update cell using either periodic_cell_vectors or periodic_cell_dimensions
+    def update_cell(self,periodic_cell_vectors=None, periodic_cell_dimensions=None):
+        print("Updating cell vectors")
+        if periodic_cell_vectors is not None:
+            self.periodic_cell_vectors = periodic_cell_vectors
 
+            from ash.modules.module_coords import cell_vectors_to_params
+            self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+        elif periodic_cell_dimensions is not None:
+            self.periodic_cell_dimensions=periodic_cell_dimensions
+
+            from ash.modules.module_coords import cell_params_to_vectors
+            self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
 
     def run(self, current_coords=None, current_MM_coords=None, MMcharges=None, qm_elems=None, mm_elems=None,
             elems=None, Grad=False, PC=False, numcores=None, restart=False, label=None,
@@ -1153,8 +1241,6 @@ class tbliteTheory(Theory):
 
         module_init_time=time.time()
         import tblite.interface as tb
-
-
 
         # Checking if charge and mult has been provided
         if charge is None or mult is None:
@@ -1175,7 +1261,12 @@ class tbliteTheory(Theory):
 
         # Creating xtb calculator object
         # TODO: Update object instead of creating new every time
-        xtb = tb.Calculator(self.method, qm_elems_numbers, coords_au, charge=charge, uhf=mult-1)
+        if self.periodic is True:
+            # Changing units from Ang to Bohr
+            xtb = tb.Calculator(self.method, qm_elems_numbers, coords_au, charge=charge, uhf=mult-1,
+                                lattice=self.periodic_cell_vectors * ash.constants.ang2bohr, periodic=self.periodic_dims)
+        else:
+            xtb = tb.Calculator(self.method, qm_elems_numbers, coords_au, charge=charge, uhf=mult-1)
 
         # set attributes
         xtb.set("max-iter", self.maxiter)
@@ -1208,8 +1299,16 @@ class tbliteTheory(Theory):
             print("Starting new tblite singlepoint calculation")
             self.results = xtb.singlepoint()
 
+
         self.energy = self.results.get("energy")
         print("Tblite energy:", self.energy)
+        # Periodic
+        if self.periodic:
+            # Grab the virial
+            virial = self.results.get("virial")
+            # Convert virial to cell gradient
+            self.cell_gradient = np.dot(virial,np.linalg.inv(self.periodic_cell_vectors * ash.constants.ang2bohr).T)
+            print("cell_gradient", self.cell_gradient)
         #Charges
         if self.grab_charges:
             self.charges = self.results.get("charges")
@@ -1223,7 +1322,6 @@ class tbliteTheory(Theory):
         #Gradient
         if Grad:
             self.gradient = self.results.get("gradient")
-
 
         if Grad:
             print_time_rel(module_init_time, modulename='tblite run', moduleindex=2)
