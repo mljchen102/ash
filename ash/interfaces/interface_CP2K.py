@@ -44,10 +44,11 @@ class CP2KTheory:
                 cell_dimensions=None, cell_vectors=None,
                 qm_cell_dims=None, qm_cell_shift_par=6.0, wavelet_scf_type=40,
                 functional=None, psolver='wavelet', potential_file='POTENTIAL', basis_file='BASIS',
-                basis_method='GAPW', ngrids=4, cutoff=250, rel_cutoff=60,
+                basis_method='GAPW', ngrids=4, xc_finer_grid=False,
+                cutoff=250, rel_cutoff=60,
                 kpoint_settings=None, 
                 method='QUICKSTEP', numcores=1, parallelization='OMP', mixed_mpi_procs=None, mixed_omp_threads=None,
-                center_coords=True, scf_maxiter=50, outer_scf_maxiter=10, scf_convergence=1e-6, eps_default=1e-10,
+                center_coords=False, scf_maxiter=50, outer_scf_maxiter=10, scf_convergence=1e-6, eps_default=1e-10,
                 coupling='GAUSSIAN', GEEP_num_gauss=6, MM_radius_scaling=1, mm_radii=None,
                 OT=True, OT_minimizer='DIIS', OT_preconditioner='FULL_ALL',
                 OT_linesearch='3PNT', outer_SCF=True, outer_SCF_optimizer='SD', OT_energy_gap=0.08):
@@ -229,6 +230,7 @@ class CP2KTheory:
 
         #Grid stuff
         self.ngrids=ngrids
+        self.xc_finer_grid=xc_finer_grid
         self.cutoff=cutoff
         self.rel_cutoff=rel_cutoff
         self.scf_convergence=scf_convergence
@@ -282,7 +284,6 @@ class CP2KTheory:
         print("Outer SCF:", self.outer_SCF)
         print("Outer SCF optimizer:", self.outer_SCF_optimizer)
         print("OT energy gap:", self.OT_energy_gap)
-
 
     #Set numcores method
     def set_numcores(self,numcores):
@@ -454,7 +455,7 @@ class CP2KTheory:
                              qm_kind_dict=qm_kind_dict, mm_kind_list=mm_kind_list,
                              scf_convergence=self.scf_convergence, eps_default=self.eps_default,
                              scf_maxiter=self.scf_maxiter, outer_scf_maxiter=self.outer_scf_maxiter,
-                             ngrids=self.ngrids, cutoff=self.cutoff, rel_cutoff=self.rel_cutoff, printlevel=self.printlevel,
+                             ngrids=self.ngrids, xc_finer_grid=self.xc_finer_grid, cutoff=self.cutoff, rel_cutoff=self.rel_cutoff, printlevel=self.printlevel,
                              OT=self.OT, OT_minimizer=self.OT_minimizer, OT_preconditioner=self.OT_preconditioner, OT_linesearch=self.OT_linesearch,
                              outer_SCF=self.outer_SCF, outer_SCF_optimizer=self.outer_SCF_optimizer, OT_energy_gap=self.OT_energy_gap)
         else:
@@ -491,11 +492,12 @@ class CP2KTheory:
                              kpoint_settings=self.kpoint_settings,
                              coordfile=system_xyzfile, scf_convergence=self.scf_convergence, eps_default=self.eps_default,
                              scf_maxiter=self.scf_maxiter, outer_scf_maxiter=self.outer_scf_maxiter,
+                             ngrids=self.ngrids, xc_finer_grid=self.xc_finer_grid, cutoff=self.cutoff, rel_cutoff=self.rel_cutoff, printlevel=self.printlevel,
                              periodic_type=self.periodic_type,
                              xtb_periodic=self.xtb_periodic, xtb_type=self.xtb_type,xtb_tblite=self.xtb_tblite,
                              cell_vectors=self.periodic_cell_vectors,
                              basis_file=self.basis_file, potential_file=self.potential_file,
-                             psolver=self.psolver, printlevel=self.printlevel,
+                             psolver=self.psolver,
                              OT=self.OT, OT_minimizer=self.OT_minimizer, OT_preconditioner=self.OT_preconditioner, OT_linesearch=self.OT_linesearch,
                              outer_SCF=self.outer_SCF, outer_SCF_optimizer=self.outer_SCF_optimizer, OT_energy_gap=self.OT_energy_gap)
 
@@ -627,7 +629,7 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
                     xtb_periodic=False, xtb_type='GFN2', xtb_tblite=False,
                     basis_file='BASIS', potential_file='POTENTIAL',
                     psolver='wavelet', wavelet_scf_type=40,
-                    ngrids=4, cutoff=250, rel_cutoff=60,
+                    ngrids=4, xc_finer_grid=False, cutoff=250, rel_cutoff=60,
                     coupling='GAUSSIAN', GEEP_num_gauss=6, MM_radius_scaling=1, mm_radii=None,
                     qm_kind_dict=None, mm_kind_list=None,
                     mm_ewald_type='NONE', mm_ewald_alpha=0.35, mm_ewald_gmax="21 21 21", printlevel=2,
@@ -774,6 +776,11 @@ def write_CP2K_input(method='QUICKSTEP', jobname='ash-CP2K', center_coords=True,
 
             #XC
             inpfile.write(f'    &XC\n')
+            # Finer grid or not
+            if xc_finer_grid is True:
+                inpfile.write(f'      &XC_GRID\n')
+                inpfile.write(f'       USE_FINER_GRID .TRUE.\n')
+                inpfile.write(f'      &END XC_GRID\n')
             if vdwpotential is not None:
                 inpfile.write(f'      &VDW_POTENTIAL\n')
                 inpfile.write(f'        DISPERSION_FUNCTIONAL PAIR_POTENTIAL\n')

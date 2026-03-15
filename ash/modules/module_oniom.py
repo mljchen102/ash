@@ -378,11 +378,20 @@ class ONIOMTheory(Theory):
         # if boundarydict is not empty we need to zero MM1 charge and distribute charge from MM1 atom to MM2,MM3,MM4
         #Creating dictionary for each MM1 atom and its connected atoms: MM2-4
         self.MMboundarydict={}
-        for (QM1atom,MM1atom) in boundaryatoms.items():
-            connatoms = get_connected_atoms(self.fragment.coords, self.fragment.elems, scale,tol, MM1atom)
-            #Deleting QM-atom from connatoms list
-            connatoms.remove(QM1atom)
-            self.MMboundarydict[MM1atom] = connatoms
+        for (QM1atom,MM1atom) in self.boundaryatoms.items():
+            if isinstance(MM1atom,list):
+                for mat in MM1atom:
+                    connatoms = get_connected_atoms(self.fragment.coords, self.fragment.elems, scale,tol, mat)
+                    #Deleting QM-atom from connatoms list
+                    connatoms.remove(QM1atom)
+                    self.MMboundarydict[mat] = connatoms
+            # OLD: should never apply anymore, we always have a list
+            # TODO: delete
+            else:
+                connatoms = get_connected_atoms(self.fragment.coords, self.fragment.elems, scale,tol, MM1atom)
+                # Deleting QM-atom from connatoms list
+                connatoms.remove(QM1atom)
+                self.MMboundarydict[MM1atom] = connatoms
 
         # Used by ShiftMMCharges
         self.MMboundary_indices = list(self.MMboundarydict.keys())

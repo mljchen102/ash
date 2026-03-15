@@ -3,11 +3,12 @@ import time
 import os
 
 import ash.constants
-from ash.functions.functions_general import ashexit, blankline,print_time_rel_and_tot,BC,listdiff
+from ash.functions.functions_general import ashexit, blankline,print_time_rel_and_tot,BC,listdiff,print_time_rel
 from ash.modules.module_coords import write_xyzfile
-from ash.modules.module_coords import check_charge_mult, cell_vectors_to_params, cell_params_to_vectors, cart_coords_to_fract, fract_coords_to_cart
+from ash.modules.module_coords import check_charge_mult, cell_vectors_to_params, cell_params_to_vectors, cart_coords_to_fract, fract_coords_to_cart, cell_volume
 from ash.modules.module_coords import print_coords_for_atoms
 from ash.interfaces.interface_geometric_new import geomeTRICOptimizer
+from ash.modules.module_theory import NumGradclass
 #import ash
 
 
@@ -257,8 +258,6 @@ def SimpleOpt(fragment=None, theory=None, charge=None, mult=None, optimizer='KNA
     print(BC.FAIL,"Optimization did not converge in {} iteration".format(maxiter),BC.END)
 
 
-
-
 #Very basic bad steepest descent algorithm.
 #Arbitrary scaling parameter instead of linesearch
 #0.8-0.9 seems to work well for H2O
@@ -444,32 +443,14 @@ def BernyOpt(theory,fragment, charge=None, mult=None):
     fragment.replace_coords(fragment.elems,geom.coords)
     blankline()
 
-
+#############################
 # PERIODIC OPTIMIZERS
-
-# Very basic stupid one
-def simple_periodic_optimizer_SD(fragment=None, theory=None, rate=0.5, maxiter=50):
-    ang2bohr=1.88972612546
-    print("Learning rate:", rate)
-    print("maxiter:", maxiter)
-    for i in range(0,maxiter):
-        print("="*40)
-        print("Cell optimization step", i)
-        print("="*40)
-        # Only optimize atom coordinates
-        res = geomeTRICOptimizer(theory=theory, fragment=fragment)
-        print("cell vector step:")
-        # Take cell vector step
-        cell_vectors_au = theory.periodic_cell_vectors*ang2bohr - (rate * theory.cell_gradient)
-        cell_vectors = cell_vectors_au / ang2bohr
-        print("cell_vectors:", cell_vectors)
-        # Update Theory with new cell vectors
-        theory.update_cell(periodic_cell_vectors=cell_vectors)
-        print("theory.periodic_cell_vectors:", theory.periodic_cell_vectors)
-
-# More advanced periodic cell optimizer
-def periodic_optimizer(fragment=None, theory=None, rate=0.5, maxiter=50, tol=1e-3, step_algo="SD",
-                                force_orthorhombic=True, max_step=0.1, momentum=0.5):
+#############################
+# Alternating periodic cell optimizer: first atom-opt, then cell-step etc.
+# Not really that useful
+def periodic_optimizer_alternating(fragment=None, theory=None, rate=0.5, maxiter=50, tol=1e-3, step_algo="SD",
+                                force_orthorhombic=True, max_step=0.25, momentum=0.5,
+                                atoms_tolsetting=None, atom_opt_maxiter=100):
     ang2bohr=1.88972612546
     print("Learning rate:", rate)
     print("maxiter:", maxiter)
@@ -485,16 +466,19 @@ def periodic_optimizer(fragment=None, theory=None, rate=0.5, maxiter=50, tol=1e-
     print(f"Initial cell vectors in Theory object: {theory.periodic_cell_vectors} Å")
 
     cell_vectors_au = theory.periodic_cell_vectors*ang2bohr
+    cell_vectors = theory.periodic_cell_vectors
 
     # Looping
     velocity = np.zeros((3, 3))
+    print("Initial cell_vectors:", cell_vectors)
     for i in range(0,maxiter):
         print("="*40)
         print("Cell optimization step", i)
         print("="*40)
         # Optimize atom coordinates with frozen cell
         print("a) Will now optimize atom coordinates")
-        res = geomeTRICOptimizer(theory=theory, fragment=fragment)
+        # Note: forcing PBC to be off in geometric
+        res = geomeTRICOptimizer(theory=theory, fragment=fragment, force_noPBC=True, convergence_setting=atoms_tolsetting, maxiter=atom_opt_maxiter)
 
         # Check convergence of cell gradient
         grad_norm = np.linalg.norm(theory.cell_gradient)
@@ -533,6 +517,7 @@ def periodic_optimizer(fragment=None, theory=None, rate=0.5, maxiter=50, tol=1e-
             print("Doing conjugate gradient step")
             if i == 0:
                 search_dir = theory.cell_gradient
+                prev_grad=None
             else:
                 # Polak-Ribière formula for beta
                 diff = theory.cell_gradient - prev_grad
@@ -563,10 +548,11 @@ def periodic_optimizer(fragment=None, theory=None, rate=0.5, maxiter=50, tol=1e-
 
         # Take step
         cell_vectors_au += delta_au
-        # Convert final cell vectors from Bohrs to Ang
+        # Convert final cell vectors from Bohrs to Å
         cell_vectors = cell_vectors_au / ang2bohr
-        print("cell_vectors:", cell_vectors)
-        # Update Theory with new cell vectors in Ang
+        print("Current cell vectors (Å):", cell_vectors)
+        print("Current cell volume (Å):", cell_volume(cell_vectors))
+        # Update Theory with new cell vectors in Å
         theory.update_cell(periodic_cell_vectors=cell_vectors)
         print("theory.periodic_cell_vectors:", theory.periodic_cell_vectors)
 
@@ -574,3 +560,377 @@ def periodic_optimizer(fragment=None, theory=None, rate=0.5, maxiter=50, tol=1e-
         new_cart_coords = fract_coords_to_cart(fract_coords,theory.periodic_cell_vectors)
         print("new_cartesian_coords:", new_cart_coords)
         fragment.coords=new_cart_coords
+
+# Cartesian-based periodic cell optimizer
+
+
+# Wrapper function around Periodic_optimizer_cart_class
+def Periodic_optimizer_cart(fragment=None, theory=None, rate=2.0, 
+                                scaling_rate_cell=1.0, maxiter=50, 
+                                step_algo="bfgs",
+                                max_step=0.25, momentum=0.5, 
+                                printlevel=2, conv_criteria=None):
+    """
+    Wrapper function around Periodic_optimizer_cart_class
+    """
+    timeA=time.time()
+
+    # EARLY EXIT
+    if theory is None or fragment is None:
+        print("Periodic_optimizer_cart requires theory and fragment objects provided. Exiting.")
+        ashexit()
+    optimizer=Periodic_optimizer_cart_class(fragment=fragment, theory=theory, rate=rate, scaling_rate_cell=scaling_rate_cell, 
+                                            maxiter=maxiter, step_algo=step_algo,
+                                            max_step=max_step, momentum=momentum, 
+                                            printlevel=printlevel, conv_criteria=conv_criteria)
+
+    result = optimizer.run()
+    if printlevel >= 1:
+        print_time_rel(timeA, modulename='Periodic_optimizer_cart', moduleindex=1)
+
+    return result
+
+
+class Periodic_optimizer_cart_class:
+
+    def __init__(self,fragment=None, theory=None, rate=2.0, scaling_rate_cell=1.0, maxiter=50, step_algo="bfgs",
+                                max_step=0.25, momentum=0.5, printlevel=2, conv_criteria=None):
+
+        self.fragment = fragment
+        self.theory = theory
+        self.rate = rate
+        self.scaling_rate_cell = scaling_rate_cell
+        self.maxiter = maxiter
+        self.step_algo=step_algo
+        self.max_step=max_step
+        self.momentum=momentum
+        self.printlevel=printlevel
+
+        self.ang2bohr=1.88972612546
+
+        if conv_criteria is None:
+            print("Convergence criteria not set by user. Using following")
+            self.conv_criteria = {'convergence_grms':1e-4, 'convergence_gmax':3e-4}
+        else:
+            self.conv_criteria=conv_criteria
+        print("Convergence criteria:", self.conv_criteria)
+        # Max step in bohrs (default = 0.1 Å = 0.188 bohrs)
+        self.max_step_au = max_step*self.ang2bohr
+
+        print("Rate (atoms):", self.rate)
+        print("Scaling for Rate (cell):", self.scaling_rate_cell)
+        print("Maxiter:", self.maxiter)
+        print(f"Max step size {self.max_step} Å")
+        print()
+        print(f"Initial cell vectors in Theory object: {theory.periodic_cell_vectors} Å")
+
+        self.cell_vectors_au = theory.periodic_cell_vectors*self.ang2bohr
+        self.cell_vectors = theory.periodic_cell_vectors
+        self.elems_phys=fragment.elems
+
+        ################
+        # INITIAL STUFF
+        ################
+        # Align to standard orientation
+        aligned_atom_coords, aligned_vectors = self.align_to_standard_orientation(self.fragment.coords, 
+                                                                                  self.theory.periodic_cell_vectors)
+        print("Updating fragment coordinates and theory cell with aligned coords")
+        self.fragment.coords=aligned_atom_coords
+        self.theory.update_cell(aligned_vectors)
+
+        # Reference
+        self.H_ref = aligned_vectors.copy()
+        print("H_ref:",self. H_ref)
+        self.H_ref_inv = np.linalg.inv(self.H_ref)
+        print("H_ref_inv:", self.H_ref_inv)
+
+    def align_to_standard_orientation(self, fragment_coords, cell_vectors):
+        """
+        Rotates the entire system (atoms and cell) into the standard 
+        upper-triangular orientation.
+
+        cell_vectors: 3x3 matrix where rows are [a, b, c]
+        fragment_coords: Nx3 array of atomic positions
+        """
+        # 1. Transpose cell_vectors because QR works on columns
+        H = cell_vectors.T 
+
+        # 2. QR Decomposition
+        # H = Q * R  -> R is the upper triangular matrix we want
+        Q, R = np.linalg.qr(H)
+
+        # 3. Handle 'Flip' cases
+        # QR can sometimes return negative diagonal elements. 
+        # We want lengths (a_x, b_y, c_z) to be positive.
+        d = np.sign(np.diag(R))
+        # If a diagonal is 0, we treat it as positive
+        d[d == 0] = 1
+
+        # Correct Q and R so diagonals of R are positive
+        Q = Q * d
+        R = (R.T * d).T
+
+        # 4. New Cell Vectors (R transposed back to rows)
+        new_cell_vectors = R.T
+
+        # 5. New Atomic Coordinates
+        # We rotate the atoms using the same rotation matrix Q
+        # Since H_new = Q.T @ H_old, we use Q.T for the atoms
+        new_coords = np.dot(fragment_coords, Q)
+
+        return new_coords, new_cell_vectors
+
+    def compute_bfgs_step(self, current_grad, current_coords):
+        # Flatten everything to 1D vectors for linear algebra
+        g = current_grad.flatten()
+        x = current_coords.flatten()
+        n = len(g)
+
+        # 1. INITIALIZATION
+        # On the first step, we don't have a Hessian yet. 
+        # We start with an Identity matrix (equivalent to Steepest Descent).
+        if not hasattr(self, 'Hess_inv') or self.Hess_inv is None:
+            print("BFGS: First step. SD step with rate:", self.rate)
+            self.Hess_inv = np.eye(n) * self.rate 
+            self.g_old = g
+            self.x_old = x
+            return -(self.rate * g).reshape(current_grad.shape)
+
+        # 2. COMPUTE DIFFERENCES
+        s = x - self.x_old  # Change in coordinates
+        y = g - self.g_old  # Change in gradient
+
+        # 3. UPDATE INVERSE HESSIAN (Sherman-Morrison-Woodbury formula)
+        # We only update if the curvature condition (y.s > 0) is met to maintain stability
+        rho_inv = np.dot(y, s)
+        if rho_inv > 1e-9:
+            rho = 1.0 / rho_inv
+            I = np.eye(n)
+
+            # BFGS Update Formula
+            A = I - np.outer(s, y) * rho
+            B = I - np.outer(y, s) * rho
+            self.Hess_inv = np.dot(A, np.dot(self.Hess_inv, B)) + (rho * np.outer(s, s))
+        else:
+            # If curvature is bad, reset the Hessian to Identity to avoid exploding
+            print("BFGS: Curvature condition not met, resetting Hessian.")
+            self.Hess_inv = np.eye(n) * self.rate
+
+        # 4. COMPUTE STEP
+        # p = -Hess_inv * g
+        step_vec = -np.dot(self.Hess_inv, g)
+
+        # Update histories
+        self.g_old = g
+        self.x_old = x
+
+        # Return reshaped to (N+4, 3)
+        return step_vec.reshape(current_grad.shape)
+
+    # Split  coords into atomic and lattice
+    def split_coords(self,supercoords):
+
+        R_geo = supercoords[:-4]
+        origin = supercoords[-4]
+        H_geo = supercoords[-3:] - origin
+        s = np.dot(R_geo - origin, self.H_ref_inv)
+        R_phys = np.dot(s, H_geo) + origin
+        return R_phys, H_geo
+
+    def calculate_supergradient(self,supercoords):
+
+        R_phys, H_geo = self.split_coords(supercoords)
+
+        # E + G from theory
+        energy,grad_phys=self.theory.run(current_coords=R_phys, elems=self.elems_phys, 
+                                    charge=self.fragment.charge, mult=self.fragment.mult, Grad=True)
+
+        # Transformation
+        # M is the transformation matrix: R_phys = R_geo @ M
+        # TODO: check units
+        M = np.dot(self.H_ref_inv, H_geo)
+        grad_Rgeo = np.dot(grad_phys, M.T)
+
+        # Lattice gradient and masking
+        # Total lattice gradient: current theory cell-gradient + convection
+        grad_latt_total = self.theory.cell_gradient
+        # Standard orientation mask:
+        # This zeros out: a_y, a_z, and b_z
+        mask = np.array([
+            [1, 0, 0], # dE/dax (ay, az frozen)
+            [1, 1, 0], # dE/dbx, dE/dby (bz frozen)
+            [1, 1, 1]  # dE/dcx, dE/dcy, dE/dcz (all free)
+        ])
+        grad_latt_masked = grad_latt_total * mask
+        # scaling lattice gradient
+        n_atoms = len(grad_Rgeo)
+        scaling_factor = 1.0 / n_atoms
+        grad_latt_preconditioned = grad_latt_masked * scaling_factor
+        # 
+        grad_latt_final=grad_latt_preconditioned
+        # Making sure origin is zero
+        grad_origin = np.zeros((1, 3))
+        # Final modified gradient to pass to geomeTRIC
+        mod_gradient = np.concatenate([
+                grad_Rgeo,         # (N, 3)
+                grad_origin,       # (1, 3)
+                grad_latt_final   # (3, 3)
+            ], axis=0)
+
+        return energy, mod_gradient
+
+    def compute_step(self,gradient,currcoords):
+        # 1. Separate rates for Atoms vs Cell (Preconditioning)
+        # Often the cell needs a rate ~10x smaller than atoms in Cartesian space
+        rate_mask = np.ones_like(gradient)
+        rate_mask[-3:] *= self.scaling_rate_cell  # Dampen lattice steps
+
+        effective_gradient = gradient * rate_mask
+        # Calculate delta step (in Bohrs)
+        if self.step_algo.lower() =="sd":
+            print("Taking steepest descent step")
+            delta_au = - (self.rate * effective_gradient)
+        elif self.step_algo == "damped-MD":
+            print("Taking damped-MD step")
+            print("velocity:", self.velocity)
+            self.velocity = (self.momentum * self.velocity) - (self.rate * effective_gradient)
+            print("velocity:", self.velocity)
+            delta_au = self.velocity
+            # Simple "Power" check: If we go against the gradient, kill velocity
+            if np.sum(delta_au * gradient) > 0:
+                self.velocity *= 0.0
+        elif self.step_algo.lower() == "nesterov":
+            # Storing old
+            velocity_old = self.velocity.copy()
+            print("Taking Nesterov momentum step")
+            self.velocity = (self.momentum * self.velocity) - (self.rate * effective_gradient)
+            nesterov_update = -self.momentum * velocity_old + (1 + self.momentum) * self.velocity
+            delta_au = nesterov_update
+        elif self.step_algo.lower() == "bfgs":
+            print("Taking BFGS step")
+            delta_au = self.compute_bfgs_step(gradient, currcoords)
+        elif self.step_algo.lower() == "cg":
+            print("Taking conjugate gradient step")
+            if self.iteration == 0:
+                self.search_dir = effective_gradient
+                self.prev_grad = None
+            else:
+                # Polak-Ribière formula for beta
+                diff = effective_gradient - self.prev_grad
+                beta = np.sum(gradient * diff) / np.sum(self.prev_grad * self.prev_grad)
+                beta = max(0, beta) # Standard 'reset' for CG
+                self.search_dir = effective_gradient + (beta * self.search_dir)
+
+            delta_au = - (self.rate * self.search_dir)
+            self.prev_grad = gradient.copy()
+        else:
+            print("Unknown step_algo")
+            ashexit()
+
+        return delta_au
+
+    def run(self):
+
+        # Defining initial super coords
+        currcoords = np.concatenate([
+                self.fragment.coords,         # (N, 3)
+                 np.zeros((1, 3)),       # (1, 3)
+                self.theory.periodic_cell_vectors,   # (3, 3)
+            ], axis=0)
+        print("currcoords:", currcoords)
+
+        self.velocity = np.zeros((len(currcoords),3))
+
+        try:
+            os.remove("PBC_opt_traj.xyz")
+        except:
+            pass
+
+        # LOOP
+        for iteration in range(0,self.maxiter):
+            self.iteration=iteration
+            print("="*40)
+            print("Periodic optimization step", iteration)
+            print("="*40)
+
+            #########################################
+            # 0. Splitting currcoords into atoms and lattice
+            # Update and print
+            #########################################
+            currcoords_au = currcoords*self.ang2bohr
+            R_phys, H_geo = self.split_coords(currcoords)
+
+            # Update coordinates of atoms and cell
+            self.theory.update_cell(H_geo)
+            self.fragment.replace_coords(self.fragment.elems, R_phys, conn=False)
+
+            # 0. PRINTING ACTIVE GEOMETRY IN EACH  ITERATION
+            self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
+            self.fragment.write_xyzfile(xyzfilename="PBC_opt_traj.xyz",writemode="a")
+            if self.printlevel >= 1:
+                print(f"Current geometry (Å) in step {iteration} (print_atoms_list region)")
+                print("---------------------------------------------------")
+                print_coords_for_atoms(R_phys, self.elems_phys,self.fragment.allatoms)
+                print("")
+                print(f"Current cell vectors (Å):{self.theory.periodic_cell_vectors}")
+                print(f"Current cell volume (Å):{cell_volume(H_geo)}")
+
+            #########################################
+            # 1. Compute energy and gradient
+            #########################################
+            energy, supergradient = self.calculate_supergradient(currcoords)
+
+            #########################################
+            # 2. Check convergence of cell gradient
+            #########################################
+            #grad_norm = np.linalg.norm(supergradient)
+            #grad_norm_atoms = np.linalg.norm(supergradient[:-4])
+            #grad_norm_atoms_cell = np.linalg.norm(supergradient[-3:])
+            #grad_rms = np.sqrt(np.mean(supergradient**2))
+            grad_rms_atoms = np.sqrt(np.mean(supergradient[:-4]**2))
+            grad_rms_cell = np.sqrt(np.mean(supergradient[-3:]**2))
+            #grad_max = abs(max(supergradient.min(), supergradient.max(), key=abs))
+            grad_max_atoms = abs(max(supergradient[:-4].min(), supergradient[:-4].max(), key=abs))
+            grad_max_cell = abs(max(supergradient[-3:].min(), supergradient[-3:].max(), key=abs))
+            #print(f"Current total Gradient Norm: {grad_norm:.6f}")
+
+            print(f"Step {iteration:3d} Energy: {energy:.10f} Eh     RMSG(atoms): {grad_rms_atoms:.6f} MaxG(atoms): {grad_max_atoms:.6f}    RMSG(cell): {grad_rms_cell:.6f} MaxG(cell): {grad_max_cell:.6f}     Cell-volume {cell_volume(self.theory.periodic_cell_vectors):.2f} Å")
+
+            if grad_rms_atoms < self.conv_criteria['convergence_grms'] and grad_max_atoms < self.conv_criteria['convergence_gmax'] and \
+                grad_rms_cell < self.conv_criteria['convergence_grms'] and grad_max_cell < self.conv_criteria['convergence_gmax']:
+                print(f"Optimization converged in {iteration+1} iterations. Convergence criteria ({self.conv_criteria}) fulfilled")
+                print(f"Final cell vectors (Å):{self.theory.periodic_cell_vectors}")
+                print(f"Final cell volume (Å):{cell_volume(self.theory.periodic_cell_vectors)}")
+                print(f"Final cell parameters: ({cell_vectors_to_params(self.theory.periodic_cell_vectors)})")
+                print(f"Final energy: {energy} Eh")
+                break
+
+            #########################################
+            # 3. Take step
+            #########################################
+
+            # Compute step
+            delta_au = self.compute_step(supergradient,currcoords)
+            print("Computed step:", delta_au)
+
+            # Separate check for the lattice part (last 3 rows of delta_au)
+            lattice_step = delta_au[-3:]
+            if np.max(np.abs(lattice_step)) > (0.05 * self.ang2bohr): # Cap lattice at 0.05 Å
+                scale_latt = (0.05 * self.ang2bohr) / np.max(np.abs(lattice_step))
+                delta_au[-3:] *= scale_latt
+                print(f"Lattice-specific scaling applied: {scale_latt:.3f}")
+
+            # Scale down step if required
+            if np.max(np.abs(delta_au)) > self.max_step_au:
+                print(f"Step scale down:  {np.max(np.abs(delta_au))}  > max_step_au: {self.max_step_au})")
+                delta_au = delta_au * (self.max_step_au / np.max(np.abs(delta_au)))
+            print("Actual step:", delta_au)
+
+            # Take the step
+            currcoords_au += delta_au
+
+            # Converting coordinates from Bohr to Angstrom
+            currcoords = currcoords_au / self.ang2bohr
+
+        if iteration == self.maxiter-1:
+            print("Number of max iterations reached without reaching convergence. Sad...")

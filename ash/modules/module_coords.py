@@ -4259,3 +4259,11 @@ def cart_coords_to_fract(coords,cell_vectors):
 def fract_coords_to_cart(fract_coords,cell_vectors):
     cart_coords = np.dot(fract_coords, cell_vectors.T)
     return cart_coords
+
+def cell_volume(vectors):
+    a = vectors[0,:]
+    b = vectors[1,:]
+    c = vectors[2,:]
+    V = abs(np.dot(a, np.cross(b, c)))
+
+    return V

@@ -8,7 +8,7 @@ from ash.modules.module_QMMM import QMMMTheory
 from ash.modules.module_theory import MicroIterativeclass
 #from ash.modules.module_oniom import ONIOMTheory
 from ash.interfaces.interface_OpenMM import OpenMMTheory
-from ash.modules.module_coords import print_coords_for_atoms,print_internal_coordinate_table,write_XYZ_for_atoms,write_xyzfile,write_coords_all
+from ash.modules.module_coords import print_coords_for_atoms,print_internal_coordinate_table,write_XYZ_for_atoms,write_xyzfile,write_coords_all,fract_coords_to_cart,cart_coords_to_fract, cell_volume
 from ash.functions.functions_general import ashexit, blankline,BC,print_time_rel,print_line_with_mainheader,print_line_with_subheader1,print_if_level, pygrep2
 from ash.modules.module_coords import check_charge_mult, fullindex_to_actindex
 from ash.modules.module_freq import write_hessian,calc_hessian_xtb, approximate_full_Hessian_from_smaller, read_hessian
@@ -18,16 +18,14 @@ from ash.modules.module_theory import NumGradclass
 ##################################################
 # NEW Interface to geomeTRIC Optimization Library
 ##################################################
-#Attempt to write a simpler more modular interface
 
 #Wrapper function around GeomeTRICOptimizerClass
-#NOTE: theory and fragment given to Optimizer function but not part of Class initialization. Only passed to run method
 def geomeTRICOptimizer(theory=None, fragment=None, charge=None, mult=None, coordsystem='tric', force_coordsystem=False, frozenatoms=None, 
                        constraints=None, constraintsinputfile=None, irc=False, rigid=False, enforce_constraints=None,
                        constrainvalue=False, maxiter=250, ActiveRegion=False, actatoms=None, NumGrad=False, 
                        convergence_setting=None, conv_criteria=None, print_atoms_list=None, TSOpt=False, hessian=None, partial_hessian_atoms=None,
                        modelhessian=None, subfrctor=1, MM_PDB_traj_write=False, printlevel=2, result_write_to_disk=True,
-                       periodic_cell_opt=False):
+                       periodic_cell_opt=False, force_noPBC=False):
     """
     Wrapper function around GeomeTRICOptimizerClass
     """
@@ -45,7 +43,7 @@ def geomeTRICOptimizer(theory=None, fragment=None, charge=None, mult=None, coord
                         convergence_setting=convergence_setting, conv_criteria=conv_criteria,
                         print_atoms_list=print_atoms_list, subfrctor=subfrctor, MM_PDB_traj_write=MM_PDB_traj_write,
                         printlevel=printlevel, force_coordsystem=force_coordsystem, result_write_to_disk=result_write_to_disk,
-                        periodic_cell_opt=periodic_cell_opt)
+                        periodic_cell_opt=periodic_cell_opt, force_noPBC=force_noPBC)
 
     # If NumGrad then we wrap theory object into NumGrad class object
     if NumGrad:
@@ -69,7 +67,7 @@ class GeomeTRICOptimizerClass:
                        constraintsinputfile=None, irc=False,rigid=False,enforce_constraints=None,
                        print_atoms_list=None, partial_hessian_atoms=None, modelhessian=None,
                        subfrctor=1, MM_PDB_traj_write=False, printlevel=2, force_coordsystem=False, result_write_to_disk=True,
-                       periodic_cell_opt=False):
+                       periodic_cell_opt=False, force_noPBC=False):
 
             self.printlevel=printlevel
             print_line_with_mainheader("geomeTRICOptimizer initialization")
@@ -107,16 +105,6 @@ class GeomeTRICOptimizerClass:
             self.TSOpt=TSOpt
             self.subfrctor=subfrctor
 
-            # PBC
-            if getattr(theory, "periodic", False):
-                print("Detected periodicity in Theory object")
-                print("Activating periodic routines ")
-                self.PBC=True
-                if periodic_cell_opt is True:
-                    print("Periodic cell optimization activated by keyword")
-            else:
-                print("Theory is not periodic")
-                self.PBC=False
             # IRC
             self.irc = irc
             # Rigid opt
@@ -141,6 +129,23 @@ class GeomeTRICOptimizerClass:
 
             #Setup convergence criteria (sets self.conv_criteria)
             self.convergence_criteria(convergence_setting,conv_criteria)
+
+            # PBC
+            if getattr(theory, "periodic", False):
+                print("Detected periodicity in Theory object")
+                print("Activating periodic routines ")
+                self.PBC=True
+                if force_noPBC is True:
+                    print("force_noPBC is True. Turning off PBC")
+                    self.PBC=False
+
+                if periodic_cell_opt is True:
+                    print("Periodic cell optimization activated by keyword")
+                #self.constraintsfile="constraints.txt"
+            else:
+                print("Theory is not periodic")
+                self.PBC=False
+
 
             ######################
             #SOME PRINTING of settings
@@ -258,12 +263,17 @@ class GeomeTRICOptimizerClass:
                     dihedralconstraints = constraints['dihedral']
                 except:
                     dihedralconstraints = None
+                try:
+                    xyzconstraints = constraints['xyz']
+                except:
+                    xyzconstraints = None
             else:
                 bondconstraints=None
                 angleconstraints=None
                 dihedralconstraints=None
+                xyzconstraints=None
 
-            return bondconstraints, angleconstraints, dihedralconstraints
+            return bondconstraints, angleconstraints, dihedralconstraints,xyzconstraints
 
         def write_constraintsfile(self,frozenatoms,bondconstraints,constrainvalue,angleconstraints,dihedralconstraints):
             if self.printlevel >= 1:
@@ -529,10 +539,12 @@ class GeomeTRICOptimizerClass:
                 print("constrainvalue: ", constrainvalue)
 
             #Getting specific constraints and writing to file
-            bondconstraints, angleconstraints, dihedralconstraints = self.define_constraints(constraints)
+            bondconstraints, angleconstraints, dihedralconstraints,xyzconstraints = self.define_constraints(constraints)
+            if xyzconstraints is not None:
+                print("xyzconstraints found. Adding to frozenatoms")
+                self.frozenatoms = self.frozenatoms + xyzconstraints
             self.write_constraintsfile(self.frozenatoms,bondconstraints,constrainvalue,angleconstraints,
                                        dihedralconstraints)
-
             if self.constraintsinputfile is not None:
                 print("constraintsinputfile provided:", self.constraintsinputfile)
                 if os.path.isfile(self.constraintsinputfile) is False:
@@ -576,7 +588,19 @@ class GeomeTRICOptimizerClass:
                 print("Actual error message:", e)
                 ashexit(code=9)
 
+            # bondorders
+            # generally unused, except PBC
+            self.bothre=0.0
+
             # Read geometry from XYZ-file into geomeTRIC Molecule object
+            if self.PBC is True:
+                print("For PBC we activate constraints")
+                #self.constraintsfile="constraints.txt"
+                self.bothre=0.5
+            #    mol_geometric_frag=geometric.molecule.Molecule("initialxyzfiletric.xyz")
+            #
+            #else:
+            #print("1self.constraintsfile:",self.constraintsfile)
             mol_geometric_frag=geometric.molecule.Molecule("initialxyzfiletric.xyz")
 
             # Defining ASHengineclass engine object containing geometry and theory. ActiveRegion boolean passed.
@@ -585,11 +609,15 @@ class GeomeTRICOptimizerClass:
                 print_atoms_list=self.print_atoms_list, MM_PDB_traj_write=self.MM_PDB_traj_write,
                 charge=charge, mult=mult, conv_criteria=self.conv_criteria, fragment=fragment, printlevel=self.printlevel,
                 maxiter=self.maxiter, PBC=self.PBC)
-
+            #print("2self.constraintsfile:",self.constraintsfile)
             # Defining args object, containing engine object
+            #print("3self.constraintsfile:",self.constraintsfile)
+            #print("self.enforce_constraints:", self.enforce_constraints)
+            #exit()
+            print("self.constraintsfile:",self.constraintsfile)
             final_geometric_args=geomeTRICArgsObject(ashengine,self.constraintsfile,coordsys=self.coordsystem,
                 maxiter=self.maxiter, conv_criteria=self.conv_criteria, transition=self.TSOpt, hessian=self.hessian, subfrctor=self.subfrctor,
-                verbose=0, irc=self.irc,rigid=self.rigid,enforce_constraints=self.enforce_constraints)
+                verbose=0, irc=self.irc,rigid=self.rigid,enforce_constraints=self.enforce_constraints, bothre=self.bothre)
 
             if self.printlevel >= 1:
                 print("Convergence criteria:", self.conv_criteria)
@@ -658,7 +686,8 @@ class GeomeTRICOptimizerClass:
 
 
 class geomeTRICArgsObject:
-    def __init__(self,eng,constraintsfile, coordsys, maxiter, conv_criteria, transition,hessian,subfrctor,verbose,irc,rigid,enforce_constraints):
+    def __init__(self,eng,constraintsfile, coordsys, maxiter, conv_criteria, transition,hessian,subfrctor,verbose,irc,rigid,enforce_constraints,
+                 bothre):
         self.coordsys=coordsys
         self.maxiter=maxiter
         self.transition=transition
@@ -667,6 +696,7 @@ class geomeTRICArgsObject:
         self.verbose=verbose
         self.irc=irc
         self.rigid=rigid
+        self.bothre=bothre
         if self.rigid is True:
             print("Rigid optimization enabled.")
             print("Activating revised constraint algorithm")
@@ -702,6 +732,7 @@ class ASHengineclass:
         self.MM_PDB_traj_write=MM_PDB_traj_write
         #Defining M attribute of engine object as geomeTRIC Molecule object
         self.M=geometric_molf
+        print("self.M:", self.M.__dict__)
         #Defining theory from argument
         self.theory=theory
         self.ActiveRegion=ActiveRegion
@@ -726,8 +757,46 @@ class ASHengineclass:
         self.fragment=fragment
         self.printlevel=printlevel
 
+        # Setting BO matrix to be None
+        self.BOmatrix=None
         # PBC
+
         self.PBC=PBC
+        if self.PBC is True:
+            # Real elements
+            self.elems_phys=self.fragment.elems
+            # Align to standard orientation
+            aligned_atom_coords, aligned_vectors = self.align_to_standard_orientation(self.fragment.coords, theory.periodic_cell_vectors)
+            print("aligned_atom_coords:",aligned_atom_coords)
+            print("aligned_vectors:",aligned_vectors)
+            self.fragment.coords=aligned_atom_coords
+            self.theory.update_cell(aligned_vectors)
+            
+            # Reference
+            self.H_ref = aligned_vectors.copy()
+            print("self.H_ref:",self.H_ref)
+            self.H_ref_inv = np.linalg.inv(self.H_ref)
+            print("self.H_ref_inv:", self.H_ref_inv)
+
+
+            # Modifying self.M to have aligned coords and 4 dummyatoms
+            self.M.xyzs = [np.concatenate((aligned_atom_coords,[[0.0,0.0,0.0]],aligned_vectors),axis=0)]
+            print("1self.M:", self.M.__dict__)
+            self.M.elem = self.M.elem + ['F','F','F','F']
+            print("len self.M.elem", len(self.M.elem))
+            #exit()
+            # Write constraints
+            # N is 0-indexed count, but geomeTRIC wants 1-based indices
+            #n_orig = len(self.elems_phys) + 1
+            #n_a = len(self.elems_phys) + 2
+            #n_b = len(self.elems_phys) + 3
+            #constraints = "$freeze\n"
+            #constraints += f"xyz {n_orig}\n"      # Freeze Origin (X,Y,Z)
+            #constraints += f"yz {n_a} \n"    # Freeze a_y and a_z
+            #constraints += f"z {n_b} \n"      # Freeze b_z
+            #with open("constraints.txt", "w") as f:
+            #    f.write(constraints)
+            #print("Wrote constraints file")
 
     def load_guess_files(self,dirname):
         if self.printlevel >= 1:
@@ -743,8 +812,42 @@ class ASHengineclass:
             print("geometric called detect_dft option option for ASHengineclass.")
         return True
     #geometric checks if calc_bondorder method is implemented for the ASHengine. Disabled until we implement this
-    #def calc_bondorder(self,coords,dirname):
-    #    print("geometric called calc_bondorder option option for ASHengineclass.")
+    def calc_bondorder(self,coords,dirname):
+        print("geometric called calc_bondorder option option for ASHengineclass.")
+        if self.BOmatrix is not None:
+            return self.BOmatrix
+        else:
+            print("no BOmatrix found")
+            if self.PBC:
+                print("PBC and BOmatrix handling")
+                # Bond orders
+                self.BOmatrix = np.zeros((len(self.M.elem), len(self.M.elem)), dtype=int)
+                # bond orders based on fragment connectivity
+                self.fragment.calc_connectivity()
+                from ash.modules.module_coords import get_connected_atoms_dict
+                conndict = get_connected_atoms_dict(self.fragment.coords, self.fragment.elems, 1.0, 0.1)
+                print("conndict:", conndict)
+                for i,conn in conndict.items():
+                    for c in conn:
+                        self.BOmatrix[i,c] = self.BOmatrix[c,i] = 1.0
+
+                # Connecting origin and lattice atoms
+                n_orig=len(self.elems_phys)
+                self.BOmatrix[n_orig,n_orig+1] = self.BOmatrix[n_orig+1,n_orig] = 1
+                self.BOmatrix[n_orig,n_orig+2] = self.BOmatrix[n_orig+2,n_orig] = 1
+                self.BOmatrix[n_orig,n_orig+3] = self.BOmatrix[n_orig+3,n_orig] = 1
+
+                #print("BOmatrix:", self.BOmatrix)
+
+                #self.M.qm_bondorder = [self.BOmatrix]
+                #self.M.build_topology(force_bonds=False, bond_order=1.0)
+                #print("2elf.M.xyzs:", self.M.__dict__)
+                return self.BOmatrix
+            else:
+                print("No BO option implemented")
+                return None
+
+            return None
     #    print("This option is currently unsupported in ASH. Continuing.")
     #TODO: geometric will regularly do ClearCalcs in an optimization
     def clearCalcs(self):
@@ -813,12 +916,20 @@ class ASHengineclass:
         timeA=time.time()
         currcoords=self.M.xyzs[0]
 
+        #print("WE ARE INSIDE CALC. we are going to verify gradient")
+        #self.verify_gradient(currcoords)
+        #print("done")
+        #exit()
+
+
+
+
+
         # Call method to use
         if self.ActiveRegion is True:
             egdict = self.actregion_calc(currcoords)
         elif self.PBC is True:
             print("Doing PBC opt-step")
-            exit()
             egdict =self.PBC_calc(currcoords)
         else:
             egdict = self.regular_calc(currcoords)
@@ -930,27 +1041,118 @@ class ASHengineclass:
         self.energy = E
         return {'energy': E, 'gradient': Grad.flatten()}
 
-    # Test
     def PBC_calc(self,currcoords):
-        self.full_current_coords=currcoords
+        # Split  coords into atomic and lattic
+        R_geo = currcoords[:-4]
+        origin = currcoords[-4]
+        H_geo = currcoords[-3:] - origin
+
+        # --- Enforce Standard Orientation in each step ---
+        print("Enforcing orientation")
+        # 1. Ensure the Origin dummy atom stays at exactly 0,0,0
+        origin[:] = 0.0
+        # 2. Force H_geo to be strictly upper-triangular
+        # Vector A: Only Ax is allowed (Ay and Az are zero)
+        H_geo[0, 1] = 0.0  # ay = 0
+        H_geo[0, 2] = 0.0  # az = 0
+        # Vector B: Only Bx and By are allowed (Bz is zero)
+        H_geo[1, 2] = 0.0  # bz = 0
+        # -----------------------------------------------------
+        s = np.dot(R_geo - origin, self.H_ref_inv)
+        R_phys = np.dot(s, H_geo) + origin
+        #Update cell parameters in theory
+        self.theory.update_cell(H_geo)
+        
+        self.full_current_coords=R_phys
         self.fragment.replace_coords(self.fragment.elems, self.full_current_coords, conn=False)
         #PRINTING ACTIVE GEOMETRY IN EACH GEOMETRIC ITERATION
         self.fragment.write_xyzfile(xyzfilename="Fragment-currentgeo.xyz")
         if self.printlevel >= 1:
             print(f"Current geometry (Å) in step {self.iteration_count} (print_atoms_list region)")
             print("---------------------------------------------------")
-            print_coords_for_atoms(currcoords, self.fragment.elems, self.print_atoms_list)
+            print_coords_for_atoms(R_phys, self.elems_phys, self.print_atoms_list)
             print("")
             print("Note: printed only print_atoms_list (this is not necessarily all atoms) ")
-        E,Grad=self.theory.run(current_coords=currcoords, elems=self.M.elem, charge=self.charge, mult=self.mult, Grad=True)
+            print(f"Current cell vectors (Å):{H_geo}")
+            print(f"Current cell volume (Å):{cell_volume(H_geo)}")
+        
+        # E + G from theory
+        E,grad_phys=self.theory.run(current_coords=R_phys, elems=self.elems_phys, 
+                                     charge=self.charge, mult=self.mult, Grad=True)
+        self.EG_count += 1
+        self.energy = E
+
         # Read last line of geometric_OPTtraj.log to get step
         step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
         if len(step_lines) > 0:
             iteration=step_lines[-1].split()[1]
             self.iteration_count=int(iteration)
-        self.EG_count += 1
-        self.energy = E
-        return {'energy': E, 'gradient': Grad.flatten()}
+
+        # Transformation
+        # M is the transformation matrix: R_phys = R_geo @ M
+        M = np.dot(self.H_ref_inv, H_geo)
+        grad_Rgeo = np.dot(grad_phys, M.T)
+
+        # Convection, implicit lattice gradient
+        #grad_convection = np.dot(s.T, grad_phys)
+
+        # Lattice gradient and masking
+        #Total lattice gradient: current theory cell-gradient + convection
+        grad_latt_total = self.theory.cell_gradient
+        # Standard orientation mask:
+        # This zeros out: a_y, a_z, and b_z
+        mask = np.array([
+            [1, 0, 0], # dE/dax (ay, az frozen)
+            [1, 1, 0], # dE/dbx, dE/dby (bz frozen)
+            [1, 1, 1]  # dE/dcx, dE/dcy, dE/dcz (all free)
+        ])
+        grad_latt_masked = grad_latt_total * mask
+        # Making sure origin is zero
+        grad_origin = np.zeros((1, 3))
+        # Final modified gradient to pass to geomeTRIC
+        mod_gradient = np.concatenate([
+                grad_Rgeo,         # (N, 3)
+                grad_origin,       # (1, 3)
+                grad_latt_masked   # (3, 3)
+            ], axis=0)
+
+        return {'energy': E, 'gradient': mod_gradient.flatten()}
+
+    def align_to_standard_orientation(self,fragment_coords, cell_vectors):
+        """
+        Rotates the entire system (atoms and cell) into the standard 
+        upper-triangular orientation.
+        
+        cell_vectors: 3x3 matrix where rows are [a, b, c]
+        fragment_coords: Nx3 array of atomic positions
+        """
+        # 1. Transpose cell_vectors because QR works on columns
+        H = cell_vectors.T 
+        
+        # 2. QR Decomposition
+        # H = Q * R  -> R is the upper triangular matrix we want
+        Q, R = np.linalg.qr(H)
+        
+        # 3. Handle 'Flip' cases
+        # QR can sometimes return negative diagonal elements. 
+        # We want lengths (a_x, b_y, c_z) to be positive.
+        d = np.sign(np.diag(R))
+        # If a diagonal is 0, we treat it as positive
+        d[d == 0] = 1
+        
+        # Correct Q and R so diagonals of R are positive
+        Q = Q * d
+        R = (R.T * d).T
+        
+        # 4. New Cell Vectors (R transposed back to rows)
+        new_cell_vectors = R.T
+        
+        # 5. New Atomic Coordinates
+        # We rotate the atoms using the same rotation matrix Q
+        # Since H_new = Q.T @ H_old, we use Q.T for the atoms
+        new_coords = np.dot(fragment_coords, Q)
+        
+        return new_coords, new_cell_vectors
 
 
 

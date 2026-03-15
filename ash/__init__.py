@@ -34,6 +34,9 @@ for pyfile in pyfiles_in_dir:
         print("Forbidden names:", forbidden_inputfilenames)
         ashexit()
 
+# New API test
+#from . import job
+
 #Results dataclass
 from .modules.module_results import ASH_Results,read_results_from_file
 
@@ -152,7 +155,7 @@ from .modules.module_theory import Theory, QMTheory, NumGradclass, MECPGradclass
 from .modules.module_QMMM import QMMMTheory, actregiondefine, read_charges_from_psf, compute_decomposed_QM_MM_energy
 from .modules.module_polembed import PolEmbedTheory
 
-# Knarr
+# Knarric_optimizer_alte
 from .interfaces.interface_knarr import NEB, NEBTS, interpolation_geodesic
 
 #VMD
@@ -173,8 +176,7 @@ import ash.modules.module_molcrys
 from .modules.module_molcrys import molcrys, Fragmenttype
 
 # Geometry optimization
-from .functions.functions_optimization import SimpleOpt, BernyOpt, periodic_optimizer
-from .interfaces.interface_dlfind import DLFIND_optimizer
+from .functions.functions_optimization import SimpleOpt, BernyOpt, periodic_optimizer_alternating, Periodic_optimizer_cart
 
 # geomeTRIC interface
 from .interfaces.interface_geometric_new import geomeTRICOptimizer,GeomeTRICOptimizerClass
@@ -242,3 +244,5 @@ if ash.settings_ash.settings_dict["load_julia"] is True:
         ash.settings_ash.settings_dict["connectivity_code"] = "py"
         # LJ+Coulomb and pairpot arrays in nonbonded MM
         ash.settings_ash.settings_dict["nonbondedMM_code"] = "py"
+
+
