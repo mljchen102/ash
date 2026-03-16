@@ -10,7 +10,7 @@ from ash.modules.module_theory import MicroIterativeclass
 from ash.interfaces.interface_OpenMM import OpenMMTheory
 from ash.modules.module_coords import print_coords_for_atoms,print_internal_coordinate_table,write_XYZ_for_atoms,write_xyzfile,write_coords_all,fract_coords_to_cart,cart_coords_to_fract, cell_volume
 from ash.functions.functions_general import ashexit, blankline,BC,print_time_rel,print_line_with_mainheader,print_line_with_subheader1,print_if_level, pygrep2
-from ash.modules.module_coords import check_charge_mult, fullindex_to_actindex
+from ash.modules.module_coords import check_charge_mult, fullindex_to_actindex, cell_vectors_to_params, write_CIF_file, write_XSF_file, write_POSCAR_file
 from ash.modules.module_freq import write_hessian,calc_hessian_xtb, approximate_full_Hessian_from_smaller, read_hessian
 from ash.modules.module_results import ASH_Results
 from ash.modules.module_theory import NumGradclass
@@ -25,7 +25,7 @@ def geomeTRICOptimizer(theory=None, fragment=None, charge=None, mult=None, coord
                        constrainvalue=False, maxiter=250, ActiveRegion=False, actatoms=None, NumGrad=False, 
                        convergence_setting=None, conv_criteria=None, print_atoms_list=None, TSOpt=False, hessian=None, partial_hessian_atoms=None,
                        modelhessian=None, subfrctor=1, MM_PDB_traj_write=False, printlevel=2, result_write_to_disk=True,
-                       force_noPBC=False):
+                       force_noPBC=False, PBC_format_option='CIF'):
     """
     Wrapper function around GeomeTRICOptimizerClass
     """
@@ -43,7 +43,7 @@ def geomeTRICOptimizer(theory=None, fragment=None, charge=None, mult=None, coord
                         convergence_setting=convergence_setting, conv_criteria=conv_criteria,
                         print_atoms_list=print_atoms_list, subfrctor=subfrctor, MM_PDB_traj_write=MM_PDB_traj_write,
                         printlevel=printlevel, force_coordsystem=force_coordsystem, result_write_to_disk=result_write_to_disk,
-                        force_noPBC=force_noPBC)
+                        force_noPBC=force_noPBC, PBC_format_option=PBC_format_option)
 
     # If NumGrad then we wrap theory object into NumGrad class object
     if NumGrad:
@@ -67,7 +67,7 @@ class GeomeTRICOptimizerClass:
                        constraintsinputfile=None, irc=False,rigid=False,enforce_constraints=None,
                        print_atoms_list=None, partial_hessian_atoms=None, modelhessian=None,
                        subfrctor=1, MM_PDB_traj_write=False, printlevel=2, force_coordsystem=False, result_write_to_disk=True,
-                       force_noPBC=False):
+                       force_noPBC=False, PBC_format_option='CIF'):
 
             self.printlevel=printlevel
             print_line_with_mainheader("geomeTRICOptimizer initialization")
@@ -135,13 +135,14 @@ class GeomeTRICOptimizerClass:
                 print("Detected periodicity in Theory object")
                 print("Activating periodic routines ")
                 self.PBC=True
+                self.PBC_format_option=PBC_format_option
                 print("Switching coordsystem to hdlc")
                 self.coordsystem="hdlc"
+                print("Final PBC coordinate file written in format:", self.PBC_format_option)
 
                 if force_noPBC is True:
-                    print("force_noPBC is True. Turning off PBC")
+                    print("Warning: force_noPBC set to True. Turning off PBC")
                     self.PBC=False
-
             else:
                 print("Theory is not periodic")
                 self.PBC=False
@@ -665,6 +666,24 @@ class GeomeTRICOptimizerClass:
             fragment.write_xyzfile(xyzfilename='Fragment-optimized.xyz')
             fragment.set_energy(finalenergy)
 
+            # PBC 
+            if self.PBC:
+                print("PBC True. Writing final optimized geometry in PBC-format")
+                print("PBC_format_option:", self.PBC_format_option)
+                if self.PBC_format_option.upper() =="CIF":
+                    convert_to_pbcfile=write_CIF_file
+                    file_ext='cif'
+                elif self.PBC_format_option.upper() =="XSF":
+                    convert_to_pbcfile=write_XSF_file
+                    file_ext='xsf'
+                elif self.PBC_format_option.upper() == "POSCAR":
+                    convert_to_pbcfile=write_POSCAR_file
+                    file_ext='POSCAR'
+                pbcfile = convert_to_pbcfile(fragment.coords,fragment.elems,cellvectors=theory.periodic_cell_vectors,
+                                             filename=f"Fragment-optimized.{file_ext}")
+                print(f"Final cell vectors (Å):{theory.periodic_cell_vectors}")
+                print(f"Final cell parameters: ({cell_vectors_to_params(theory.periodic_cell_vectors)})")
+                print(f"Final cell volume (Å):{cell_volume(theory.periodic_cell_vectors)}")
             #Active region XYZ-file
             if self.ActiveRegion is True:
                 write_XYZ_for_atoms(fragment.coords, fragment.elems, self.actatoms, "Fragment-optimized_Active")

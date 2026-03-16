@@ -15,7 +15,7 @@ import time
 from ash.functions.functions_general import frange, BC, natural_sort, print_line_with_mainheader,print_line_with_subheader1,print_time_rel, ashexit
 from ash.modules.module_freq import calc_rotational_constants
 import ash.functions.functions_parallel
-from ash.modules.module_coords import check_charge_mult
+from ash.modules.module_coords import check_charge_mult, write_CIF_file, write_POSCAR_file, write_XSF_file
 from ash.modules.module_results import ASH_Results
 from ash.interfaces.interface_geometric_new import geomeTRICOptimizer,GeomeTRICOptimizerClass
 from ash.modules.module_theory import NumGradclass
@@ -26,7 +26,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                  keepoutputfiles=True, keepmofiles=False,runmode='serial', coordsystem='dlc', maxiter=250, NumGrad=False,
                  extraconstraints=None, convergence_setting=None, conv_criteria=None, subfrctor=1, force_noPBC=False,
                  numcores=1, ActiveRegion=False, actatoms=None, RC1_range=None, RC1_type=None, RC1_indices=None,
-                 RC2_range=None, RC2_type=None, RC2_indices=None):
+                 RC2_range=None, RC2_type=None, RC2_indices=None, PBC_format_option="CIF"):
     """Calculate 1D/2D surface
 
     Args:
@@ -122,6 +122,24 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
 
     pointcount=0
 
+    # Check if theory is periodc
+    if getattr(theory, "periodic", False):
+        print("Warning: Theory is periodic. Constrained geometry optimizations by geomeTRIC Optimizer will optimize both atom and cell parameters")
+        print("Set force_noPBC to True if you do not want optimization of cell parameters.")
+        try:
+            shutil.rmtree("surface_pbcfiles")
+        except:
+            pass
+        print("Creating directory: surface_pbcfiles to store coordinate files with PBC information")
+        os.mkdir('surface_pbcfiles')
+        print(f"PBC_format_option: {PBC_format_option} i.e. file-format to use for files in surface_pbcfiles (options are: CIF, XSF and POSCAR)")
+        if PBC_format_option.upper() =="CIF":
+            convert_to_pbcfile=write_CIF_file
+        elif PBC_format_option.upper() =="XSF":
+            convert_to_pbcfile=write_XSF_file
+        elif PBC_format_option.upper() == "POSCAR":
+            convert_to_pbcfile=write_POSCAR_file
+
     #Create directories to keep track of surface XYZ files, outputfiles, fragmentfiles, MOfiles
 
     #Deleting old directories first
@@ -129,21 +147,18 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
         shutil.rmtree("surface_xyzfiles")
     except:
         pass
+
     try:
         shutil.rmtree("surface_outfiles")
     except:
         pass
-    #try:
-    #    shutil.rmtree("surface_fragfiles")
-    #except:
-    #    pass
+
     try:
         shutil.rmtree("surface_mofiles")
     except:
         pass
     os.mkdir('surface_xyzfiles')
     os.mkdir('surface_outfiles')
-    #os.mkdir('surface_fragfiles')
     os.mkdir('surface_mofiles')
 
     try:
@@ -185,12 +200,16 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             #Running zero-theory with optimizer just to set geometry
                             geomeTRICOptimizer(fragment=fragment, theory=zerotheory, maxiter=maxiter, coordsystem=coordsystem,
                             constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
-                            ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
+                            ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC, PBC_format_option=PBC_format_option)
                             #Shallow copy of fragment
                             newfrag = copy.copy(fragment)
                             newfrag.label = (RCvalue1,RCvalue2)
                             newfrag.write_xyzfile(xyzfilename="RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz")
                             shutil.move("RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz", "surface_xyzfiles/RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz")
+                            # PBC
+                            if getattr(theory, "periodic", False):
+                                pbcfile = convert_to_pbcfile(newfrag.coords,newfrag.elems,cellvectors=theory.periodic_cell_vectors)
+                                shutil.move(pbcfile, "surface_pbcfiles/RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+f".{pbcfile.split('.')[-1]}")
                             #surfacepointfragments[(RCvalue1,RCvalue2)] = newfrag
                             surfacepointfragments_lists.append(newfrag)
 
@@ -223,7 +242,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         #Running zero-theory with optimizer just to set geometry
                         geomeTRICOptimizer(fragment=fragment, theory=zerotheory, maxiter=maxiter, coordsystem=coordsystem,
                         constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting,conv_criteria=conv_criteria, subfrctor=subfrctor,
-                        ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
+                        ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC, PBC_format_option=PBC_format_option)
                         #Shallow copy of fragment
                         newfrag = copy.copy(fragment)
                         #newfrag.label = str(RCvalue1)+"_"+str(RCvalue2)
@@ -231,6 +250,10 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         newfrag.label = (RCvalue1)
                         newfrag.write_xyzfile(xyzfilename="RC1_"+str(RCvalue1))
                         shutil.move("RC1_"+str(RCvalue1), "surface_xyzfiles/RC1_"+str(RCvalue1))
+                        # PBC
+                        if getattr(theory, "periodic", False):
+                            pbcfile = convert_to_pbcfile(newfrag.coords,newfrag.elems,cellvectors=theory.periodic_cell_vectors)
+                            shutil.move(pbcfile, "surface_pbcfiles/RC1_"+str(RCvalue1)+f".{pbcfile.split('.')[-1]}")
                         surfacepointfragments_lists.append(newfrag)
 
                 print("surfacepointfragments_lists: ", surfacepointfragments_lists)
@@ -244,7 +267,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
             #Create optimizer object
             optimizer=GeomeTRICOptimizerClass(maxiter=maxiter, coordsystem=coordsystem,
                         convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
-                        ActiveRegion=ActiveRegion, actatoms=actatoms, force_noPBC=force_noPBC)
+                        ActiveRegion=ActiveRegion, actatoms=actatoms, force_noPBC=force_noPBC, PBC_format_option=PBC_format_option)
             print("Warning: Relaxed scans in parallel mode are experimental")
             ###########################
             # PARALLEL: RELAXED: DIM 2
@@ -360,7 +383,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             #Running zero-theory with optimizer just to set geometry
                             geomeTRICOptimizer(fragment=fragment, theory=zerotheory, maxiter=maxiter, coordsystem=coordsystem,
                             constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
-                            charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
+                            charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC, PBC_format_option=PBC_format_option)
 
                             # Write to trajectory
                             fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')
@@ -369,6 +392,8 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             fragment.write_xyzfile(xyzfilename="RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz")
                             #fragment.print_system(filename="RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".ygg")
                             shutil.move("RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz", "surface_xyzfiles/RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz")
+
+
                             #shutil.move("RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".ygg", "surface_fragfiles/RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".ygg")
                             # Single-point calculation on adjusted geometry
                             if theory is not None:
@@ -382,6 +407,12 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                                         shutil.copyfile(theory.filename+'.gbw', 'surface_mofiles/'+str(theory.filename)+'_'+pointlabel+'.gbw')
                                 else:
                                     print("Warning: For hybrid theories, outputfiles and MO-files are not kept")
+
+                            # PBC
+                            if getattr(theory, "periodic", False):
+                                pbcfile = convert_to_pbcfile(fragment.coords,fragment.elems,cellvectors=theory.periodic_cell_vectors)
+                                shutil.move(pbcfile, "surface_pbcfiles/RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+f".{pbcfile.split('.')[-1]}")
+
                             surfacedictionary[(RCvalue1,RCvalue2)] = energy
                             # Write surfacedictionary to file after each step
                             write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
@@ -406,7 +437,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         #Running zero-theory with optimizer just to set geometry
                         geomeTRICOptimizer(fragment=fragment, theory=zerotheory, maxiter=maxiter, coordsystem=coordsystem,
                         constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
-                            charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
+                            charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC, PBC_format_option=PBC_format_option)
 
                         # Write to trajectory
                         fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')
@@ -427,6 +458,12 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                                 shutil.copyfile(theory.filename+'.gbw', 'surface_mofiles/'+str(theory.filename)+'_'+pointlabel+'.gbw')
                         else:
                             print("Warning: For hybrid theories, outputfiles and MO-files are not kept")
+
+                        # PBC
+                        if getattr(theory, "periodic", False):
+                            pbcfile = convert_to_pbcfile(fragment.coords,fragment.elems,cellvectors=theory.periodic_cell_vectors)
+                            shutil.move(pbcfile, "surface_pbcfiles/RC1_"+str(RCvalue1)+f".{pbcfile.split('.')[-1]}")
+
                         surfacedictionary[(RCvalue1)] = energy
                         # Write surfacedictionary to file after each step
                         write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
@@ -455,7 +492,8 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             # Running
                             result = geomeTRICOptimizer(fragment=fragment, theory=theory, maxiter=maxiter, coordsystem=coordsystem,
                                 constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria,
-                                subfrctor=subfrctor,charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
+                                subfrctor=subfrctor,charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, 
+                                force_noPBC=force_noPBC, PBC_format_option=PBC_format_option)
                             energy = result.energy
                             print("RCvalue1: {} RCvalue2: {} Energy: {}".format(RCvalue1,RCvalue2, energy))
                             if theory.theorytype == "QM":
@@ -481,6 +519,12 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             #fragment.print_system(filename="RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".ygg")
                             shutil.move("RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz", "surface_xyzfiles/RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz")
                             #shutil.move("RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".ygg", "surface_fragfiles/RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".ygg")
+
+                            # PBC
+                            if getattr(theory, "periodic", False):
+                                pbcfile = convert_to_pbcfile(fragment.coords,fragment.elems,cellvectors=theory.periodic_cell_vectors)
+                                shutil.move(pbcfile, "surface_pbcfiles/RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+f".{pbcfile.split('.')[-1]}")
+
                         else:
                             print("RC1, RC2 values in dict already. Skipping.")
                     print("surfacedictionary:", surfacedictionary)
@@ -502,7 +546,8 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         result = geomeTRICOptimizer(fragment=fragment, theory=theory, maxiter=maxiter, coordsystem=coordsystem,
                             constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria,
                             subfrctor=subfrctor,charge=charge, mult=mult,
-                            ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
+                            ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, 
+                            force_noPBC=force_noPBC, PBC_format_option=PBC_format_option)
                         energy = result.energy
                         print("RCvalue1: {} Energy: {}".format(RCvalue1, energy))
                         if theory.theorytype == "QM":
@@ -527,6 +572,12 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         fragment.write_xyzfile(xyzfilename="RC1_"+str(RCvalue1)+".xyz")
                         # fragment.print_system(filename="RC1_"+str(RCvalue1)+".ygg")
                         shutil.move("RC1_"+str(RCvalue1)+".xyz", "surface_xyzfiles/"+"RC1_"+str(RCvalue1)+".xyz")
+
+                        # PBC
+                        if getattr(theory, "periodic", False):
+                            pbcfile = convert_to_pbcfile(fragment.coords,fragment.elems,cellvectors=theory.periodic_cell_vectors)
+                            shutil.move(pbcfile, "surface_pbcfiles/RC1_"+str(RCvalue1)+f".{pbcfile.split('.')[-1]}")
+
                         # shutil.move("RC1_"+str(RCvalue1)+".ygg", "surface_fragfiles/"+"RC1_"+str(RCvalue1)+".ygg")
                     else:
                         print("RC1 value in dict already. Skipping.")
@@ -560,7 +611,8 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
 # TODO: Parallelization and Relaxed mode
 def calc_surface_fromXYZ(xyzdir=None, multixyzfile=None, theory=None, charge=None, mult=None, dimension=None, resultfile='surface_results.txt', scantype='UNRELAXED',runmode='serial',
                          coordsystem='dlc', maxiter=250, extraconstraints=None, convergence_setting=None, conv_criteria=None, subfrctor=1, NumGrad=False, 
-                         numcores=None, RC1_type=None, RC2_type=None, RC1_indices=None, RC2_indices=None, keepoutputfiles=True, force_noPBC=False,
+                         numcores=None, RC1_type=None, RC2_type=None, RC1_indices=None, RC2_indices=None, keepoutputfiles=True, 
+                         force_noPBC=False, 
                          keepmofiles=False,read_mofiles=False, mofilesdir=None):
     module_init_time=time.time()
     print_line_with_mainheader("CALC_SURFACE_FROMXYZ FUNCTION")

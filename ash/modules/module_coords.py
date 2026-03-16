@@ -4300,6 +4300,7 @@ def write_POSCAR_file(coords,elems,cellvectors=None, celldimensions=None, filena
                         if el == target_el:
                             f.write(f"{c[0]:.8f}  {c[1]:.8f}  {c[2]:.8f}\n")
     print("Wrote POSCAR file")
+    return filename
 
 # Write XSF files
 def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.xsf"):
@@ -4331,6 +4332,7 @@ def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
             f.write(f"{el}  {c[0]:.10f}  {c[1]:.10f}  {c[2]:.10f}\n")
             
     print(f"Wrote XSF file: {filename}")
+    return filename
 
 
 def write_CIF_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.cif"):
@@ -4376,3 +4378,4 @@ def write_CIF_file(coords, elems, cellvectors=None, celldimensions=None, filenam
             f.write(f"{el}{i+1}  {el}  {c[0]:.8f}  {c[1]:.8f}  {c[2]:.8f}\n")
 
     print(f"Wrote CIF file: {filename}")
+    return filename
