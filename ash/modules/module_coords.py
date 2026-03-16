@@ -782,6 +782,7 @@ class Fragment:
                       resnames=self.pdb_resnames,residlabels=self.pdb_residlabels, segmentlabels=None, conect_lines=self.pdb_conect_lines)
         return f"{filename}.pdb"
 
+
     # Create new topology from scratch if none is defined (defined automatically when reading PDB-files by OpenMM)
     def define_topology(self, scale=1.0, tol=0.1, resname="MOL"):
         try:
@@ -1721,9 +1722,9 @@ def create_coords_string(elems, coords):
 # Takes list of elements and gives formula
 def elemlisttoformula(list):
     # This dict comprehension was slow for large systems. Using set to reduce iterations
-    dict = {i: list.count(i) for i in set(list)}
+    elemdict = {i: list.count(i) for i in set(list)}
     formula = ""
-    for item in dict.items():
+    for item in elemdict.items():
         el = item[0]
         count = item[1]
         # string=el+str(count)
@@ -4226,7 +4227,6 @@ def cell_params_to_vectors(parameters):
     cz = np.sqrt(c**2 - cx**2 - cy**2)
     
     vectors = np.array([[ax,ay,az],[bx,by,bz],[cx,cy,cz]])
-    print("vectors:", vectors)
     return vectors
 
 def cell_vectors_to_params(vectors):
@@ -4267,3 +4267,112 @@ def cell_volume(vectors):
     V = abs(np.dot(a, np.cross(b, c)))
 
     return V
+
+# Write Cartesian-based POSCAR files
+def write_POSCAR_file(coords,elems,cellvectors=None, celldimensions=None, filename="POSCAR"):
+
+    if cellvectors is None and celldimensions is None:
+        print("Error: Either cellvectors or celldimensions should be provided")
+        ashexit()
+    elif celldimensions is not None:
+        # converting 
+        cellvectors=cell_params_to_vectors(celldimensions)
+
+    # Unique elements in original order
+    unique_elements = []
+    for e in elems:
+        if e not in unique_elements:
+            unique_elements.append(e)
+    # Count atoms of each elemtype
+    counts = [elems.count(e) for e in unique_elements]
+
+    with open(filename, 'w') as f:
+        f.write("ASH created POSCAR file"+"\n")
+        f.write("1.0"+"\n")
+        f.write(f"{cellvectors[0,0]:.4f} {cellvectors[0,1]:.4f} {cellvectors[0,2]:.4f} "+"\n")
+        f.write(f"{cellvectors[1,0]:.4f} {cellvectors[1,1]:.4f} {cellvectors[1,2]:.4f}"+"\n")
+        f.write(f"{cellvectors[2,0]:.4f} {cellvectors[2,1]:.4f} {cellvectors[2,2]:.4f}"+"\n")
+        f.write(f"{'  '.join(unique_elements)}\n")
+        f.write(f"{'  '.join(map(str, counts))}\n")
+        f.write(f"Cartesian"+"\n")# coord system
+        for target_el in unique_elements:
+                    for el, c in zip(elems, coords):
+                        if el == target_el:
+                            f.write(f"{c[0]:.8f}  {c[1]:.8f}  {c[2]:.8f}\n")
+    print("Wrote POSCAR file")
+
+# Write XSF files
+def write_XSF_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.xsf"):
+
+    if cellvectors is None and celldimensions is None:
+        print("Error: Either cellvectors or celldimensions should be provided")
+        ashexit()
+    elif celldimensions is not None:
+        # Assuming your helper function handles the conversion
+        cellvectors = cell_params_to_vectors(celldimensions)
+
+    with open(filename, 'w') as f:
+        # Header for periodic structures
+        f.write("CRYSTAL\n")
+        
+        # Section 1: Lattice Vectors
+        f.write("PRIMVEC\n")
+        for i in range(3):
+            f.write(f"  {cellvectors[i,0]:.10f}  {cellvectors[i,1]:.10f}  {cellvectors[i,2]:.10f}\n")
+        
+        # Section 2: Atomic Coordinates
+        f.write("PRIMCOORD\n")
+        # Header for coordinates: [Number of atoms] [Number of units, usually 1]
+        f.write(f"{len(elems)} 1\n")
+        
+        # XSF supports either Atomic Number or Element Symbol. 
+        # Using Element Symbol is more human-readable and works perfectly in VMD.
+        for el, c in zip(elems, coords):
+            f.write(f"{el}  {c[0]:.10f}  {c[1]:.10f}  {c[2]:.10f}\n")
+            
+    print(f"Wrote XSF file: {filename}")
+
+
+def write_CIF_file(coords, elems, cellvectors=None, celldimensions=None, filename="structure.cif"):
+
+    if cellvectors is None and celldimensions is None:
+        print("Error: Either cellvectors or celldimensions should be provided")
+        ashexit()
+    elif celldimensions is not None:
+        # Assuming your helper function handles the conversion
+        cellvectors = cell_params_to_vectors(celldimensions)
+    elif cellvectors is not None:
+        celldimensions = cell_vectors_to_params(cellvectors)
+
+    # Cart to fract
+    frac_coords = cart_coords_to_fract(coords,cellvectors)
+
+    # celldimensions should be [a, b, c, alpha, beta, gamma]
+    a, b, c, alpha, beta, gamma = celldimensions
+
+    with open(filename, 'w') as f:
+        f.write("data_ASH_output\n")
+        f.write(f"_cell_length_a    {a:.6f}\n")
+        f.write(f"_cell_length_b    {b:.6f}\n")
+        f.write(f"_cell_length_c    {c:.6f}\n")
+        f.write(f"_cell_angle_alpha {alpha:.6f}\n")
+        f.write(f"_cell_angle_beta  {beta:.6f}\n")
+        f.write(f"_cell_angle_gamma {gamma:.6f}\n\n")
+        
+        # We use P1 symmetry (no symmetry) so every atom is listed explicitly
+        f.write("_symmetry_space_group_name_H-M 'P 1'\n")
+        f.write("_symmetry_Int_Tables_number 1\n\n")
+        
+        # The Atom Loop
+        f.write("loop_\n")
+        f.write("_atom_site_label\n")
+        f.write("_atom_site_type_symbol\n")
+        f.write("_atom_site_fract_x\n")
+        f.write("_atom_site_fract_y\n")
+        f.write("_atom_site_fract_z\n")
+        
+        for i, (el, c) in enumerate(zip(elems, frac_coords)):
+            # We add an index to the label (e.g., Na1, Na2) to keep them unique
+            f.write(f"{el}{i+1}  {el}  {c[0]:.8f}  {c[1]:.8f}  {c[2]:.8f}\n")
+
+    print(f"Wrote CIF file: {filename}")

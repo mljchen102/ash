@@ -487,8 +487,6 @@ def periodic_optimizer_alternating(fragment=None, theory=None, rate=0.5, maxiter
             print(f"Cell converged in {i} cell-iterations  (Gradient norm: {grad_norm:.6f} < tol={tol} Eh/Bohr)")
             print(f"Final cell vectors: {cell_vectors} Å  and parameters: ({cell_vectors_to_params(cell_vectors)})")
             print(f"Final energy: {res.energy} Eh")
-
-            # TODO: File-handling. Write POSCAR file or something else?
             break
 
         # Convert previously optimized Cart coords to Fract coords
@@ -497,23 +495,23 @@ def periodic_optimizer_alternating(fragment=None, theory=None, rate=0.5, maxiter
         print("b) Will now take cell vector step")
 
         # Calculate cell vector step (in Bohrs)
-        if step_algo =="SD":
+        if step_algo.lower() =="sd":
             print("Doing steepest descent step")
             delta_au = - (rate * theory.cell_gradient)
-        elif step_algo == "damped-MD":
+        elif step_algo.lower() == "damped-MD":
             print("Doing momentum step")
             print("velocity:", velocity)
             velocity = (momentum * velocity) - (rate * theory.cell_gradient)
             print("velocity:", velocity)
             delta_au = velocity
-        elif step_algo == "nesterov":
+        elif step_algo.lower() == "nesterov":
             # Storing old
             velocity_old = velocity.copy()
             print("Doing Nesterov momentum step")
             velocity = (momentum * velocity) - (rate * theory.cell_gradient)
             nesterov_update = -momentum * velocity_old + (1 + momentum) * velocity
             delta_au = nesterov_update
-        elif step_algo == "cg":
+        elif step_algo.lower() == "cg":
             print("Doing conjugate gradient step")
             if i == 0:
                 search_dir = theory.cell_gradient

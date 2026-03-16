@@ -25,7 +25,7 @@ def geomeTRICOptimizer(theory=None, fragment=None, charge=None, mult=None, coord
                        constrainvalue=False, maxiter=250, ActiveRegion=False, actatoms=None, NumGrad=False, 
                        convergence_setting=None, conv_criteria=None, print_atoms_list=None, TSOpt=False, hessian=None, partial_hessian_atoms=None,
                        modelhessian=None, subfrctor=1, MM_PDB_traj_write=False, printlevel=2, result_write_to_disk=True,
-                       periodic_cell_opt=False, force_noPBC=False):
+                       force_noPBC=False):
     """
     Wrapper function around GeomeTRICOptimizerClass
     """
@@ -43,7 +43,7 @@ def geomeTRICOptimizer(theory=None, fragment=None, charge=None, mult=None, coord
                         convergence_setting=convergence_setting, conv_criteria=conv_criteria,
                         print_atoms_list=print_atoms_list, subfrctor=subfrctor, MM_PDB_traj_write=MM_PDB_traj_write,
                         printlevel=printlevel, force_coordsystem=force_coordsystem, result_write_to_disk=result_write_to_disk,
-                        periodic_cell_opt=periodic_cell_opt, force_noPBC=force_noPBC)
+                        force_noPBC=force_noPBC)
 
     # If NumGrad then we wrap theory object into NumGrad class object
     if NumGrad:
@@ -67,7 +67,7 @@ class GeomeTRICOptimizerClass:
                        constraintsinputfile=None, irc=False,rigid=False,enforce_constraints=None,
                        print_atoms_list=None, partial_hessian_atoms=None, modelhessian=None,
                        subfrctor=1, MM_PDB_traj_write=False, printlevel=2, force_coordsystem=False, result_write_to_disk=True,
-                       periodic_cell_opt=False, force_noPBC=False):
+                       force_noPBC=False):
 
             self.printlevel=printlevel
             print_line_with_mainheader("geomeTRICOptimizer initialization")
@@ -135,13 +135,13 @@ class GeomeTRICOptimizerClass:
                 print("Detected periodicity in Theory object")
                 print("Activating periodic routines ")
                 self.PBC=True
+                print("Switching coordsystem to hdlc")
+                self.coordsystem="hdlc"
+
                 if force_noPBC is True:
                     print("force_noPBC is True. Turning off PBC")
                     self.PBC=False
 
-                if periodic_cell_opt is True:
-                    print("Periodic cell optimization activated by keyword")
-                #self.constraintsfile="constraints.txt"
             else:
                 print("Theory is not periodic")
                 self.PBC=False

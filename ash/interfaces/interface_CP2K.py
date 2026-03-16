@@ -38,7 +38,7 @@ element_radii_for_cp2k = {'H': 0.44, 'He': 0.44, 'Li': 0.6, 'Be': 0.6,
 # 'XTB'
 class CP2KTheory:
     def __init__(self, cp2kdir=None, cp2k_bin_name=None, filename='cp2k', printlevel=2, basis_dict=None, potential_dict=None, label="CP2K",
-                periodic=False, periodic_type='XYZ', qm_periodic_type=None, stress_tensor=False, stress_tensor_algo="DIAGONAL_ANALYTICAL",
+                periodic=False, periodic_type='XYZ', qm_periodic_type=None, stress_tensor=True, stress_tensor_algo="DIAGONAL_ANALYTICAL",
                 xtb_type='GFN2', xtb_tblite=False,
                 user_input_dft=None, vdwpotential=None,
                 cell_dimensions=None, cell_vectors=None,

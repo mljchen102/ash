@@ -24,7 +24,7 @@ from ash.modules.module_theory import NumGradclass
 
 def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='UNRELAXED', resultfile='surface_results.txt',
                  keepoutputfiles=True, keepmofiles=False,runmode='serial', coordsystem='dlc', maxiter=250, NumGrad=False,
-                 extraconstraints=None, convergence_setting=None, conv_criteria=None, subfrctor=1,
+                 extraconstraints=None, convergence_setting=None, conv_criteria=None, subfrctor=1, force_noPBC=False,
                  numcores=1, ActiveRegion=False, actatoms=None, RC1_range=None, RC1_type=None, RC1_indices=None,
                  RC2_range=None, RC2_type=None, RC2_indices=None):
     """Calculate 1D/2D surface
@@ -185,7 +185,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             #Running zero-theory with optimizer just to set geometry
                             geomeTRICOptimizer(fragment=fragment, theory=zerotheory, maxiter=maxiter, coordsystem=coordsystem,
                             constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
-                            ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False)
+                            ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
                             #Shallow copy of fragment
                             newfrag = copy.copy(fragment)
                             newfrag.label = (RCvalue1,RCvalue2)
@@ -223,7 +223,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         #Running zero-theory with optimizer just to set geometry
                         geomeTRICOptimizer(fragment=fragment, theory=zerotheory, maxiter=maxiter, coordsystem=coordsystem,
                         constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting,conv_criteria=conv_criteria, subfrctor=subfrctor,
-                        ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False)
+                        ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
                         #Shallow copy of fragment
                         newfrag = copy.copy(fragment)
                         #newfrag.label = str(RCvalue1)+"_"+str(RCvalue2)
@@ -244,7 +244,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
             #Create optimizer object
             optimizer=GeomeTRICOptimizerClass(maxiter=maxiter, coordsystem=coordsystem,
                         convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
-                        ActiveRegion=ActiveRegion, actatoms=actatoms)
+                        ActiveRegion=ActiveRegion, actatoms=actatoms, force_noPBC=force_noPBC)
             print("Warning: Relaxed scans in parallel mode are experimental")
             ###########################
             # PARALLEL: RELAXED: DIM 2
@@ -360,7 +360,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             #Running zero-theory with optimizer just to set geometry
                             geomeTRICOptimizer(fragment=fragment, theory=zerotheory, maxiter=maxiter, coordsystem=coordsystem,
                             constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
-                            charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False)
+                            charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
 
                             # Write to trajectory
                             fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')
@@ -406,7 +406,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         #Running zero-theory with optimizer just to set geometry
                         geomeTRICOptimizer(fragment=fragment, theory=zerotheory, maxiter=maxiter, coordsystem=coordsystem,
                         constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
-                            charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False)
+                            charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
 
                         # Write to trajectory
                         fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')
@@ -455,7 +455,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             # Running
                             result = geomeTRICOptimizer(fragment=fragment, theory=theory, maxiter=maxiter, coordsystem=coordsystem,
                                 constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria,
-                                subfrctor=subfrctor,charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False)
+                                subfrctor=subfrctor,charge=charge, mult=mult, ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
                             energy = result.energy
                             print("RCvalue1: {} RCvalue2: {} Energy: {}".format(RCvalue1,RCvalue2, energy))
                             if theory.theorytype == "QM":
@@ -502,7 +502,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                         result = geomeTRICOptimizer(fragment=fragment, theory=theory, maxiter=maxiter, coordsystem=coordsystem,
                             constraints=allconstraints, constrainvalue=True, convergence_setting=convergence_setting, conv_criteria=conv_criteria,
                             subfrctor=subfrctor,charge=charge, mult=mult,
-                            ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False)
+                            ActiveRegion=ActiveRegion, actatoms=actatoms, result_write_to_disk=False, force_noPBC=force_noPBC)
                         energy = result.energy
                         print("RCvalue1: {} Energy: {}".format(RCvalue1, energy))
                         if theory.theorytype == "QM":
@@ -560,7 +560,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
 # TODO: Parallelization and Relaxed mode
 def calc_surface_fromXYZ(xyzdir=None, multixyzfile=None, theory=None, charge=None, mult=None, dimension=None, resultfile='surface_results.txt', scantype='UNRELAXED',runmode='serial',
                          coordsystem='dlc', maxiter=250, extraconstraints=None, convergence_setting=None, conv_criteria=None, subfrctor=1, NumGrad=False, 
-                         numcores=None, RC1_type=None, RC2_type=None, RC1_indices=None, RC2_indices=None, keepoutputfiles=True,
+                         numcores=None, RC1_type=None, RC2_type=None, RC1_indices=None, RC2_indices=None, keepoutputfiles=True, force_noPBC=False,
                          keepmofiles=False,read_mofiles=False, mofilesdir=None):
     module_init_time=time.time()
     print_line_with_mainheader("CALC_SURFACE_FROMXYZ FUNCTION")
@@ -790,7 +790,7 @@ def calc_surface_fromXYZ(xyzdir=None, multixyzfile=None, theory=None, charge=Non
         elif scantype.upper() == 'RELAXED':
             #Create optimizer object
             optimizer=GeomeTRICOptimizerClass(maxiter=maxiter, coordsystem=coordsystem,
-                        convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor, result_write_to_disk=False)
+                        convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor, result_write_to_disk=False, force_noPBC=force_noPBC)
             print("Warning: calc_surface_fromXYZ Relaxed option is experimental")
             if read_mofiles == True:
                 #print("Will read MO-file: {}".format(mofilesdir+'/'+str(theory.filename)+'_'+pointlabel+'.gbw'))
@@ -855,7 +855,7 @@ def calc_surface_fromXYZ(xyzdir=None, multixyzfile=None, theory=None, charge=Non
                         result = geomeTRICOptimizer(fragment=mol, theory=theory,
                                                     maxiter=maxiter, coordsystem=coordsystem, constraints=allconstraints, constrainvalue=True,
                                                     convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
-                                                    charge=charge, mult=mult, result_write_to_disk=False)
+                                                    charge=charge, mult=mult, result_write_to_disk=False, force_noPBC=force_noPBC)
                         energy = result.energy
                         #Write geometry to disk in dir : surface_xyzfiles
                         mol.write_xyzfile(xyzfilename="RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+".xyz")
@@ -914,7 +914,7 @@ def calc_surface_fromXYZ(xyzdir=None, multixyzfile=None, theory=None, charge=Non
                         result = geomeTRICOptimizer(fragment=mol, theory=theory,
                                                     maxiter=maxiter, coordsystem=coordsystem, constraints=allconstraints, constrainvalue=True,
                                                     convergence_setting=convergence_setting, conv_criteria=conv_criteria, subfrctor=subfrctor,
-                                                    charge=charge, mult=mult, result_write_to_disk=False)
+                                                    charge=charge, mult=mult, result_write_to_disk=False, force_noPBC=force_noPBC)
                         energy = result.energy
                         #Write geometry to disk in dir : surface_xyzfiles
                         mol.write_xyzfile(xyzfilename="RC1_"+str(RCvalue1)+".xyz")
