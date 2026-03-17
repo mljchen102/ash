@@ -751,7 +751,6 @@ class ASHengineclass:
         self.MM_PDB_traj_write=MM_PDB_traj_write
         #Defining M attribute of engine object as geomeTRIC Molecule object
         self.M=geometric_molf
-        print("self.M:", self.M.__dict__)
         #Defining theory from argument
         self.theory=theory
         self.ActiveRegion=ActiveRegion
@@ -786,36 +785,17 @@ class ASHengineclass:
             self.elems_phys=self.fragment.elems
             # Align to standard orientation
             aligned_atom_coords, aligned_vectors = self.align_to_standard_orientation(self.fragment.coords, theory.periodic_cell_vectors)
-            print("aligned_atom_coords:",aligned_atom_coords)
-            print("aligned_vectors:",aligned_vectors)
             self.fragment.coords=aligned_atom_coords
             self.theory.update_cell(aligned_vectors)
             
             # Reference
             self.H_ref = aligned_vectors.copy()
-            print("self.H_ref:",self.H_ref)
             self.H_ref_inv = np.linalg.inv(self.H_ref)
-            print("self.H_ref_inv:", self.H_ref_inv)
 
 
             # Modifying self.M to have aligned coords and 4 dummyatoms
             self.M.xyzs = [np.concatenate((aligned_atom_coords,[[0.0,0.0,0.0]],aligned_vectors),axis=0)]
-            print("1self.M:", self.M.__dict__)
             self.M.elem = self.M.elem + ['F','F','F','F']
-            print("len self.M.elem", len(self.M.elem))
-            #exit()
-            # Write constraints
-            # N is 0-indexed count, but geomeTRIC wants 1-based indices
-            #n_orig = len(self.elems_phys) + 1
-            #n_a = len(self.elems_phys) + 2
-            #n_b = len(self.elems_phys) + 3
-            #constraints = "$freeze\n"
-            #constraints += f"xyz {n_orig}\n"      # Freeze Origin (X,Y,Z)
-            #constraints += f"yz {n_a} \n"    # Freeze a_y and a_z
-            #constraints += f"z {n_b} \n"      # Freeze b_z
-            #with open("constraints.txt", "w") as f:
-            #    f.write(constraints)
-            #print("Wrote constraints file")
 
     def load_guess_files(self,dirname):
         if self.printlevel >= 1:

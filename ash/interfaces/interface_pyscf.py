@@ -1,7 +1,7 @@
 import time
 
 from ash.functions.functions_general import ashexit, BC,print_time_rel, print_line_with_mainheader,listdiff
-import ash.modules.module_coords
+from ash.modules.module_coords import nucchargelist, create_coords_string, cell_vectors_to_params, cell_params_to_vectors
 from ash.modules.module_results import ASH_Results
 from ash.functions.functions_elstructure import get_ec_entropy,get_entropy
 import os
@@ -46,7 +46,9 @@ class PySCFTheory:
                   loscpath=None, LOSC_window=None,
                   mcpdft=False, mcpdft_functional=None,
                   PBC_lattice_vectors=None,rcut_ewald=8, rcut_hcore=6, radii=None,
-                  neo=False, nuc_basis=None):
+                  neo=False, nuc_basis=None,
+                  periodic=False, periodic_cell_vectors=None, periodic_cell_dimensions=None,
+                  ke_cutoff=None, kpoints=None):
 
         self.theorynamelabel="PySCF"
         self.theorytype="QM"
@@ -151,6 +153,31 @@ class PySCFTheory:
 
         # Counter for how often pyscftheory.run is called
         self.runcalls = 0
+
+        #PBC
+        self.periodic=periodic
+        self.periodic_cell_vectors=None # initially
+        self.ke_cutoff=ke_cutoff
+        self.kpoints=kpoints # K-points e.g. [2,2,2]
+        if self.periodic:
+            print("PBC enabled")
+            print("PySCFTheory with PBC is currently disabled in ASH")
+            # NOTE: wait until grid and stress implementations have stabilized
+            ashexit()
+            if periodic_cell_vectors is None and periodic_cell_dimensions is None:
+                print("Error: for periodic calculations, you must specify either periodic_cell_vectors or  periodic_cell_dimensions")
+                ashexit()
+                # Convert to cell vectors
+                self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+            elif periodic_cell_vectors is not None:
+                self.periodic_cell_vectors = periodic_cell_vectors
+                self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+            elif periodic_cell_dimensions is not None:
+                self.periodic_cell_dimensions = periodic_cell_dimensions
+                self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+
+            print("Cell vectors:", self.periodic_cell_vectors)
+            print("Cell dimensions:", self.periodic_cell_dimensions)
 
         #CPPE Polarizable Embedding options
         self.pe=pe
@@ -821,15 +848,15 @@ class PySCFTheory:
             if unrestricted is False:
                 if dm is None:
                     dm = mf.make_rdm1()
-                mulliken_populations =mull_pop_func(self.mol,dm, verbose=verbose)
+                mulliken_populations =mull_pop_func(self.molcellobject,dm, verbose=verbose)
                 print(f"{label} Mulliken charges:", mulliken_populations[1])
             elif unrestricted is True:
                 if dm is None:
                     dm = mf.make_rdm1()
                 #print("dm:", dm)
                 #print("dm.shape:", dm.shape)
-                mulliken_populations =mull_pop_func(self.mol,dm, verbose=verbose)
-                mulliken_spinpopulations = mull_spinpop_func(self.mol,dm, verbose=verbose)
+                mulliken_populations =mull_pop_func(self.molcellobject,dm, verbose=verbose)
+                mulliken_spinpopulations = mull_spinpop_func(self.molcellobject,dm, verbose=verbose)
                 print(f"{label} Mulliken charges:", mulliken_populations[1])
                 print(f"{label} Mulliken spin pops:", mulliken_spinpopulations[1])
         return
@@ -1861,9 +1888,10 @@ class PySCFTheory:
         if self.printlevel >=1:
             print("get_dipole_moment function.")
 
-        #if self.platform =="GPU":
-        #    print("Dipole moment calculation not currently supported on GPU")
-        #    return None
+        # For PBC return None
+        if self.periodic:
+            print("Warning: PBC not yet available")
+            return None
 
         if label == None:
             label=""
@@ -1871,6 +1899,7 @@ class PySCFTheory:
             if self.printlevel >=1:
                 print("No DM provided. Using mean-field object dm")
             #MF dipole moment
+
             dipole = self.mf.dip_moment(unit='A.U.',verbose=self.printlevel)
             if self.printlevel >=1:
                 print(f"MF Dipole moment ({label}): {dipole} A.U.")
@@ -1902,7 +1931,7 @@ class PySCFTheory:
             print("Creating mol object")
         import pyscf
 
-        coords_string=ash.modules.module_coords.create_coords_string(qm_elems,current_coords)
+        coords_string=create_coords_string(qm_elems,current_coords)
         # NEO (requires special pyscf)
         if neo:
             print("neo option activated. Warning: requires special pyscf with neo")
@@ -1934,18 +1963,51 @@ class PySCFTheory:
                 self.mol.cart = cartesian_basis
         
   
+   #Create pyscf periodic cell object
+    def create_cell(self, qm_elems, current_coords, charge, mult, cartesian_basis=None):
+        if self.printlevel >= 1:
+            print("Creating cell object")
+        from pyscf.pbc import gto
 
-    #Update mol object with coordinates or charge/mult
-    #def update_mol(self, qm_elems, current_coords, charge, mult):
-    #    coords_string=ash.modules.module_coords.create_coords_string(qm_elems,current_coords)
-    #    self.mol.atom = coords_string
-    #    self.mol.charge = charge
-    #    self.mol.spin = mult-1
+        coords_string=create_coords_string(qm_elems,current_coords)
+        #Defining pyscf mol object and populating
+        self.cell = gto.Cell()
+        #cell system printing. Hardcoding to 3 as otherwise too much PySCF printing
+        self.cell.verbose = 3
+
+        self.cell.atom = coords_string
+        self.cell.charge = charge
+        self.cell.spin = mult-1
+
+        # Lattice parameters
+        self.cell.a = self.periodic_cell_vectors
+
+        # Kinetic energy cutoff. Only if user requested
+        if self.ke_cutoff is not None:
+            print("Setting kinetic energy cutoff in cell:", self.ke_cutoff)
+            self.cell=self.ke_cutoff
+
+    # Update cell using either periodic_cell_vectors or periodic_cell_dimensions
+    def update_cell(self,periodic_cell_vectors=None, periodic_cell_dimensions=None):
+        print("Updating cell vectors")
+        if periodic_cell_vectors is not None:
+            self.periodic_cell_vectors = periodic_cell_vectors
+            self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+        elif periodic_cell_dimensions is not None:
+            self.periodic_cell_dimensions=periodic_cell_dimensions
+            self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+        # Update self.cell if created
+        if hasattr(self, "cell"):
+            print("Updating pyscf cell object")
+            self.cell.a=self.periodic_cell_vectors
+            exit()
+        else:
+            print("pySCF cell object not yet created")
 
     #Define basis in mol object
     def define_basis(self,elems=None):
         if self.printlevel >= 1:
-            print("Defining basis set in mol object")
+            print("Defining basis set in mol/cell object")
         import pyscf
         #PYSCF basis object: https://sunqm.github.io/pyscf/tutorial.html
         #NOTE: We should also support basis set exchange API: https://github.com/pyscf/pyscf/issues/1299
@@ -1963,51 +2025,77 @@ class PySCFTheory:
                     if self.printlevel >= 3:
                         print("basis_per_elem:", basis_per_elem)
                     self.basis_dict[elem]=basis_per_elem
-                self.mol.basis=self.basis_dict
+                self.molcellobject.basis=self.basis_dict
             else:
-                self.mol.basis=self.basis_dict
+                self.molcellobject.basis=self.basis_dict
 
         else:
             if self.printlevel >= 1:
                 print("Using basis set from input string")
-            self.mol.basis=self.basis
+            self.molcellobject.basis=self.basis
         if self.printlevel >= 1:
-            print("Basis set:", self.mol.basis)
+            print("Basis set:", self.molcellobject.basis)
         
         #Optional setting magnetic moments
         if self.magmom != None:
             if self.printlevel >= 1:
                 print("Setting magnetic moments from user-input:", self.magmom)
-            self.mol.magmom=self.magmom #Should be a list of the collinear spins of each atom
+            self.molcellobject.magmom=self.magmom #Should be a list of the collinear spins of each atom
         #ECP: Can be string ('def2-SVP') or dict or a dict with element-specific keys and values
-        self.mol.ecp = self.ecp
+        if self.periodic:
+                self.molcellobject.pseudo=self.ecp
+        else:
+            self.molcellobject.ecp = self.ecp
         #Memory settings
-        self.mol.max_memory = self.memory
+        self.molcellobject.max_memory = self.memory
         ###########
 
     #Create mf object (self.mf) via method
     def create_mf(self):
         if self.printlevel >= 1:
             print("Creating pySCF mf object")
-        import pyscf
+        if self.periodic:
+            from pyscf.pbc import scf
+        else:
+            from pyscf import scf
+
         #RKS v UKS v RHF v UHF v GHF v GKS
         #TODO: Dirac HF and KS also
         if self.scf_type == 'RKS':
-            self.mf = pyscf.scf.RKS(self.mol)
+            self.mf = scf.RKS(self.molcellobject)
         elif self.scf_type == 'ROKS':
-            self.mf = pyscf.scf.ROKS(self.mol)
+            self.mf = scf.ROKS(self.molcellobject)
         elif self.scf_type == 'ROHF':
-            self.mf = pyscf.scf.ROHF(self.mol)
+            self.mf = scf.ROHF(self.molcellobject)
         elif self.scf_type == 'UKS':
-            self.mf = pyscf.scf.UKS(self.mol)
+            self.mf = scf.UKS(self.molcellobject)
         elif self.scf_type == 'RHF':
-            self.mf = pyscf.scf.RHF(self.mol)
+            self.mf = scf.RHF(self.molcellobject)
         elif self.scf_type == 'UHF':
-            self.mf = pyscf.scf.UHF(self.mol)
+            self.mf = scf.UHF(self.molcellobject)
         elif self.scf_type == 'GHF':
-            self.mf = pyscf.scf.GHF(self.mol)
+            self.mf = scf.GHF(self.molcellobject)
         elif self.scf_type == 'GKS':
-            self.mf = pyscf.scf.GKS(self.mol)
+            self.mf = scf.GKS(self.molcellobject)
+        #K-point methods
+        elif self.scf_type == 'KRHF':
+            self.mf = scf.KRHF(self.molcellobject, kpts=self.cell.make_kpts(self.kpoints))
+        elif self.scf_type == 'KRKS':
+            self.mf = scf.KRKS(self.molcellobject, kpts=self.cell.make_kpts(self.kpoints))
+        elif self.scf_type == 'KROHF':
+            self.mf = scf.KROHF(self.molcellobject, kpts=self.cell.make_kpts(self.kpoints))
+        elif self.scf_type == 'KROKS':
+            self.mf = scf.KROKS(self.molcellobject, kpts=self.cell.make_kpts(self.kpoints))
+        elif self.scf_type == 'KUHF':
+            self.mf = scf.KUHF(self.molcellobject, kpts=self.cell.make_kpts(self.kpoints))
+        elif self.scf_type == 'KUKS':
+            self.mf = scf.KUKS(self.molcellobject, kpts=self.cell.make_kpts(self.kpoints))
+        elif self.scf_type == 'KGHF':
+            self.mf = scf.KGHF(self.molcellobject, kpts=self.cell.make_kpts(self.kpoints))
+        elif self.scf_type == 'KGKS':
+            self.mf = scf.KGKS(self.molcellobject, kpts=self.cell.make_kpts(self.kpoints))
+
+        print("mf object:", self.mf)
 
     #Probably depreceated. Created mf for GPU.
     def create_mf_for_gpu(self):
@@ -2427,7 +2515,11 @@ class PySCFTheory:
         scf_result = mf.run(dm)
         #Grid
         if 'KS' in self.scf_type:
-            print("Number of gridpoints used in calculation:", len(self.mf.grids.coords))
+            try:
+                print("Number of gridpoints used in calculation:", len(self.mf.grids.coords))
+            except:
+                # Multigrid PBC
+                pass
         E_tot = scf_result.e_tot
         if self.printlevel >=1:
             print("SCF done!")
@@ -2452,7 +2544,8 @@ class PySCFTheory:
             #else:
             #    self.num_orbs = len(self.mf.mo_energy[0])
         else:
-            if isinstance(self.mf, pyscf.scf.hf.RHF) or isinstance(self.mf, pyscf.dft.rks.RKS) :
+            print("here:", self.mf)
+            if isinstance(self.mf, pyscf.scf.hf.RHF) or isinstance(self.mf, pyscf.dft.rks.RKS) or isinstance(self.mf, pyscf.pbc.dft.rks.RKS):
                 self.num_orbs = len(self.mf.mo_occ) # Restricted
             else:
                 self.num_orbs = len(self.mf.mo_occ[0]) 
@@ -2548,14 +2641,14 @@ class PySCFTheory:
 
 
         #Setting number of electrons for system (used by load_chkfile etc)
-        self.num_electrons  = int(ash.modules.module_coords.nucchargelist(qm_elems) - charge)
+        self.num_electrons  = int(nucchargelist(qm_elems) - charge)
         if self.printlevel >= 1:
             print("Number of electrons:", self.num_electrons)
             print()
 
-        #####################
-        #CREATE MOL OBJECT
-        #####################
+        ###############################
+        #CREATE MOL OBJECT or CELL
+        ###############################
         qH_atoms=None
         if self.neo:
             print("NEO mode. Selecting all H-atoms")
@@ -2563,20 +2656,35 @@ class PySCFTheory:
             print("qH-atom indices:", qH_atoms)
             #TODO: skip link atoms needed
 
-        self.create_mol(qm_elems, current_coords, charge, mult, cartesian_basis=self.cartesian_basis,
-                        neo=self.neo, quantum_nuc=qH_atoms, nuc_basis=self.nuc_basis)
-
+        if self.periodic:
+            self.create_cell(qm_elems, current_coords, charge, mult, cartesian_basis=self.cartesian_basis)
+            self.molcellobject=self.cell
+        else:
+            self.create_mol(qm_elems, current_coords, charge, mult, cartesian_basis=self.cartesian_basis,
+                            neo=self.neo, quantum_nuc=qH_atoms, nuc_basis=self.nuc_basis)
+            # General mol/cell object
+            self.molcellobject=self.mol
         #####################
         # BASIS
         #####################
 
         #Only define basis set if regular job (not FCIDUMP or read-in MF)
         if self.fcidumpfile is None and self.mf_object is None:
+            #if self.periodic:
+            # CELL
             self.define_basis(elems=qm_elems)
-        print("Building pyscf mol object")
-        self.mol.build()
-        # Defining number of basis functions
-        self.num_basis_functions=len(self.mol.ao_labels())
+            print("Building pyscf cell object")
+            self.molcellobject.build()
+            # Defining number of basis functions
+            self.num_basis_functions=len(self.molcellobject.ao_labels())
+            #else:
+            #    # MOL
+            #    self.define_basis(elems=qm_elems)
+            #    print("Building pyscf mol object")
+            #    self.mol.build()
+            #    # Defining number of basis functions
+            #    self.num_basis_functions=len(self.mol.ao_labels())
+        
         if self.printlevel >= 1:
             print("Number of basis functions:", self.num_basis_functions)
         
@@ -2628,6 +2736,12 @@ class PySCFTheory:
         #DFT
         #####################
         self.set_DFT_options()
+        
+        # Multigrid for PBC
+        if self.periodic:
+            print("PBC: using multigrid")
+            from pyscf.pbc.dft.multigrid import MultiGridNumInt2
+            self.mf._numint = MultiGridNumInt2(self.cell)
 
         ###################
         #SCF CONVERGENCE
@@ -2647,7 +2761,12 @@ class PySCFTheory:
         ##############################
         #DENSITY FITTING and SGX
         ##############################
-        self.set_DF_mf_options(Grad=Grad,elems=qm_elems)
+        if self.periodic:
+            print("Periodic density fitting")
+            
+        else:
+            # Molecular
+            self.set_DF_mf_options(Grad=Grad,elems=qm_elems)
 
         ##############################
         #FROZEN ORBITALS in CC
@@ -2892,7 +3011,7 @@ class PySCFTheory:
                     print("Gradient for postSCF methods  is not implemented in ASH interface")
                     #TODO: Enable TDDFT, CASSCF, MP2, CC gradient etc
                     ashexit()
-            #Caluclate regular SCF gradient
+            #Calculate regular SCF gradient
             else:
                 if self.printlevel >1:
                     print("Calculating regular SCF gradient")
@@ -2901,8 +3020,18 @@ class PySCFTheory:
                     print("Calculating gradient on GPU")
                     g = self.mf.Gradients()
                 else:
+
                     g = self.mf.nuc_grad_method()
+                    #g = self.mf.Gradients()
                 self.gradient = g.kernel()
+
+                # PBC cell gradient
+                if self.periodic:
+                    self.cell_gradient = g.get_stress()
+                    print("self.cell_gradient:", self.cell_gradient)
+                    exit()
+
+
                 print_time_rel(checkpoint, modulename='pyscf_gradient', moduleindex=2)
 
             #Applying dispersion gradient last
@@ -3139,7 +3268,7 @@ def make_molden_file_PySCF_from_chkfile(fragment=None, basis=None, chkfile=None,
     mol = pyscf.gto.Mole()
     #Mol system printing. Hardcoding to 3 as otherwise too much PySCF printing
     mol.verbose = 3
-    coords_string=ash.modules.module_coords.create_coords_string(fragment.elems,fragment.coords)
+    coords_string=create_coords_string(fragment.elems,fragment.coords)
     mol.atom = coords_string
     mol.symmetry = None
     mol.charge = fragment.charge
