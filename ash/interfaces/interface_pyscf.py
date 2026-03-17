@@ -3841,7 +3841,8 @@ def DFA_error_analysis(fragment=None, DFA_obj=None, REF_obj=None, DFA_DM=None, R
     #Not using run_SCF anymore as we may have post-SCF contributions
     DFA_obj.dm=ref_DM_inv
     DFA_obj.scf_maxiter=0
-    res = ash.Singlepoint(theory=DFA_obj, fragment=fragment)
+    from ash import Singlepoint
+    res = Singlepoint(theory=DFA_obj, fragment=fragment)
     #scf_result_1 = DFA_obj.run_SCF(dm=ref_DM_inv, max_cycle=0)
     E_DFA_nref=res.energy
     print("E_DFA_nref:", E_DFA_nref)

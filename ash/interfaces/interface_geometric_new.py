@@ -1012,7 +1012,7 @@ class ASHengineclass:
             # Read last line of geometric_OPTtraj.log to get step
             step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
             if len(step_lines) > 0:
-                iteration=step_lines[-1].split()[1]
+                iteration=int(step_lines[-1].split("Step", 1)[1].split(":", 1)[0].strip())
                 self.iteration_count=int(iteration)
             self.EG_count += 1
 
@@ -1034,7 +1034,7 @@ class ASHengineclass:
         # Read last line of geometric_OPTtraj.log to get step
         step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
         if len(step_lines) > 0:
-            iteration=step_lines[-1].split()[1]
+            iteration=int(step_lines[-1].split("Step", 1)[1].split(":", 1)[0].strip())
             self.iteration_count=int(iteration)
         self.EG_count += 1
         self.energy = E
@@ -1084,7 +1084,7 @@ class ASHengineclass:
         # Read last line of geometric_OPTtraj.log to get step
         step_lines = pygrep2("Step ", "geometric_OPTtraj.log", print_output=False, errors=None)
         if len(step_lines) > 0:
-            iteration=step_lines[-1].split()[1]
+            iteration=int(step_lines[-1].split("Step", 1)[1].split(":", 1)[0].strip())
             self.iteration_count=int(iteration)
 
         # Transformation

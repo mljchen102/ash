@@ -3,26 +3,19 @@ import numpy as np
 import shutil
 import os 
 
-from ash.modules.module_coords import elemstonuccharges
+from ash.modules.module_coords import cell_params_to_vectors, cell_vectors_to_params
 from ash.functions.functions_general import ashexit, BC,print_time_rel
 from ash.functions.functions_general import print_line_with_mainheader
 import ash.constants
 
 # Simple interface to MACE for both using and training
-
 class MACETheory():
-    def __init__(self, config_filename="config.yml", 
-                 filename="mace.model", model_file=None, printlevel=2, 
-                 label="MACETheory", numcores=1, device="cpu", return_zero_gradient=False, polarmace=False, default_dtype="float64",
-                 energy_weight=None, forces_weight=None, max_num_epochs=None, valid_fraction=None):
-        # Early exits
-        try:
-            import mace
-        except ImportError:
-            print("Problem importing mace. Make sure you have installed mace-correctly")
-            print("Most likely you need to do: pip install mace-torch")
-            print("Also recommended: pip install cuequivariance_torch")
-            ashexit()
+    def __init__(self, config_filename="config.yml",
+                 model_name=None, model_name_subtype=None, model_name_head=None,
+                 filename="mace.model", model_file=None, printlevel=2, mace_load_dispersion=False,
+                 label="MACETheory", numcores=1, platform="cpu", device=None, return_zero_gradient=False, polarmace=False, default_dtype="float64",
+                 energy_weight=None, forces_weight=None, max_num_epochs=None, valid_fraction=None,
+                 periodic=False, periodic_cell_vectors=None, periodic_cell_dimensions=None):
 
         self.theorytype = 'QM'
         self.theorynamelabel = 'MACE'
@@ -33,16 +26,36 @@ class MACETheory():
         self.filename = filename
         self.printlevel = printlevel
         self.properties = {}
+
+        print_line_with_mainheader(f"{self.theorynamelabel}Theory initialization")
+        # Early exits
+        try:
+            import mace
+        except ImportError:
+            print("Problem importing mace. Make sure you have installed mace-correctly")
+            print("Most likely you need to do: pip install mace-torch")
+            print("Also recommended: pip install cuequivariance_torch")
+            ashexit()
+
         # Ignore predicted forces and return zero gradient
         self.return_zero_gradient=return_zero_gradient
 
         # Distinguish between old MACE and polarMACE
         self.polarmace=polarmace
 
+        # 
+        self.new_interface=False
+
         self.default_dtype=default_dtype
 
         # Model attribute is None until we have loaded a model
         self.model=None
+        #
+        self.model_file=model_file
+        self.model_name=model_name #for quickly loading foundational models
+        self.model_name_subtype=model_name_subtype #subtype of foundational model
+        self.model_name_head = model_name_head # choose head of multi-head foundational model
+        self.mace_load_dispersion=mace_load_dispersion # activate dispersion 
 
         # Training parameters
         self.energy_weight=energy_weight
@@ -50,8 +63,33 @@ class MACETheory():
         self.max_num_epochs=max_num_epochs
         self.valid_fraction=valid_fraction
 
-        self.model_file=model_file
-        self.device=device.lower()
+        # Platform/device
+        if device is not None:
+            print("Warning: device keyword is deprecated. Use platform instead")
+            ashexit()
+        self.platform=platform.lower()
+
+        # PBC
+        self.periodic=periodic
+        self.periodic_cell_vectors=None # initially
+        self.stress=False
+        if self.periodic:
+            print("PBC enabled in MaceTHeory")
+            self.stress=True
+            if periodic_cell_vectors is None and periodic_cell_dimensions is None:
+                print("Error: for periodic calculations, you must specify either periodic_cell_vectors or  periodic_cell_dimensions")
+                ashexit()
+                # Convert to cell vectors
+                self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+            elif periodic_cell_vectors is not None:
+                self.periodic_cell_vectors = periodic_cell_vectors
+                self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+            elif periodic_cell_dimensions is not None:
+                self.periodic_cell_dimensions = periodic_cell_dimensions
+                self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+
+            print("Cell vectors:", self.periodic_cell_vectors)
+            print("Cell dimensions:", self.periodic_cell_dimensions)
 
         print_line_with_mainheader(f"{self.theorynamelabel}Theory initialization")
 
@@ -63,7 +101,18 @@ class MACETheory():
     def set_numcores(self,numcores):
         self.numcores=numcores
 
-    def train(self, config_file="config.yml", name="model",model="MACE", device=None,
+    # Update cell using either periodic_cell_vectors or periodic_cell_dimensions
+    def update_cell(self,periodic_cell_vectors=None, periodic_cell_dimensions=None):
+        print("Updating cell vectors")
+        if periodic_cell_vectors is not None:
+            self.periodic_cell_vectors = periodic_cell_vectors
+            self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+        elif periodic_cell_dimensions is not None:
+            self.periodic_cell_dimensions=periodic_cell_dimensions
+            self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+
+
+    def train(self, config_file="config.yml", name="model",model="MACE", platform=None, device=None,
                       valid_fraction=0.1, train_file="train_data_mace.xyz",E0s=None,
                       energy_key='energy_REF', forces_key='forces_REF',        
                       energy_weight=1, forces_weight=100,
@@ -86,16 +135,20 @@ class MACETheory():
         self.train_file=train_file
         self.valid_fraction=valid_fraction
 
-        if device is None:
-            print("Warning: device not passed to train. Using object's device attribute:", self.device)
-            device=self.device
+        if device is not None:
+            print("Warning: device keyword is deprecated. Please use platform instead")
+            ashexit()
+
+        if platform is None:
+            print("Warning: platform not passed to train. Using object's platform attribute:", self.platform)
+            platform=self.platform
 
         print("Training activated")
         print("Training parameters:")
         print("config_file", config_file)
         print("name:", model)
         print("model:", model)
-        print("device:", device)
+        print("platform:", platform)
         print("Validation set fraction (valid_fraction):", valid_fraction)
         print("train_file:", self.train_file)
         print("E0s:", E0s)
@@ -120,7 +173,7 @@ class MACETheory():
         print("\nWriting MACE config file to disk as as:", self.config_filename)
         #write_mace_config(config_file=self.config_filename)
         print()
-        write_mace_config(config_file=config_file, name=name, model=model, device=device, 
+        write_mace_config(config_file=config_file, name=name, model=model, platform=platform, 
                       valid_fraction=valid_fraction, train_file=self.train_file,E0s=E0s,
                       energy_key=energy_key, forces_key=forces_key,        
                       energy_weight=energy_weight, forces_weight=forces_weight,
@@ -158,11 +211,11 @@ class MACETheory():
         print("MACETheory object can now be used directly.")
 
         # If we train with a specific device we would want to use that same device for evaluation/prediction
-        self.device=device
-        print("Setting device of object to be ", self.device)
+        self.platform=platform
+        print("Setting platform of object to be ", self.platform)
 
-        #Load model
-        self.model_load()
+        #Load model from file
+        self.modelfile_load()
 
         #############
         #STATISTICS
@@ -208,40 +261,83 @@ class MACETheory():
         if file_present is False:
             print(f"File {file} does not exist. Exiting.")
             ashexit()
-    # Get statistics for training, sub-training and validation set
-    #def get_statistics():
 
-        #FIle ./valid_indices_123.txt contains indices of training set that are validation
-        #Read training file #self.train_file
-        #Get validation set. Convert data into Eh and Eh/Bohr
-        #Create dict: valDB
-        #
-
-    #    from mlatom.MLtasks analyzing
-    #
-    #    self.result_molDB = analyzing(valDB, ref_value='energy', est_value='estimated_y', ref_grad='energy_gradients', 
-    #                                  est_grad='estimated_xyz_derivatives_y', set_name="valDB")
-
-    def model_load(self):
+    def modelfile_load(self):
         module_init_time=time.time()
 
         if 'polar' in self.model_file.lower():
-            print("Model file name contains 'polar'. Assuming this is a polar MACE model. Loading polar mace")
+            print("Model file name contains 'polar'. Assuming this is a polar MACE model. Loading special calculator")
             self.polarmace=True
+            self.new_interface=True
             from mace.calculators import mace_polar
             self.model = mace_polar(
                 model=self.model_file,
-                device=self.device,           # or "cuda"
-                default_dtype=self.default_dtype # use float32 for faster MD
-            )
+                device=self.platform,
+                default_dtype=self.default_dtype) # use float32 for faster MD)
+        elif 'mh' in self.model_file.lower():
+            print("Model file name contains 'mh'. Assuming this is a multihead MACE model. Loading special calculator.")
+            self.new_interface=True
+            from mace.calculators import mace_mp
+            if self.model_name_head is None:
+                print("Warning: no head provided. You probably need to select head by ASH model_name_head keyword. Will try to continue")
+                self.model = mace_mp(model=self.model_file, default_dtype=self.default_dtype, device=self.platform)
+            else:
+                print("Using head:", self.model_name_head)
+                self.model = mace_mp(model=self.model_file, default_dtype=self.default_dtype, device=self.platform, head=self.model_name_head)
         else:
             print("Loading regular MACE via Pytorch")
             import torch
             # Load model
-            print(f"Loading model from file {self.model_file}. Device is: {self.device}")
-            self.model = torch.load(f=self.model_file, map_location=torch.device(self.device))
-            self.model = self.model.to(self.device)  # for possible cuda problems
+            print(f"Loading model from file {self.model_file}. Platform is: {self.platform}")
+            self.model = torch.load(f=self.model_file, map_location=torch.device(self.platform))
+            self.model = self.model.to(self.platform)  # for possible cuda problems
             print_time_rel(module_init_time, modulename=f'MACE model-load', moduleindex=2)
+
+    # Load foundational model by name
+    def modelname_load(self):
+        if self.model_name.lower() in ['mace-ani-cc','mace_anicc']:
+            print("MACE-ANI-CC model requested")
+            from mace.calculators import mace_anicc
+            self.model = mace_anicc(device=self.platform)
+        elif self.model_name.lower() in ['mace_off23','mace_off', 'mace-off', 'mace-off23']:
+            print("MACE-OFF model requested")
+            from mace.calculators import mace_off
+            if self.model_name_subtype is None:
+                print("Loading MACE-OFF model:")
+                print("Using medium model by default (use model_name_subtype keyword to choose small, medium, large)")
+                self.model = mace_off(model="medium", device=self.platform)
+            else:
+                print("MACE-OFF model with modelname_subtype:", self.model_name_subtype)
+                self.model = mace_off(model=self.model_name_subtype, device=self.platform)
+        # MACE Materials Project (MP) models
+        elif self.model_name.lower() in ['mace-mp','medium-mpa-0','mace-mp-0', 'mace_mp']:
+            from mace.calculators import mace_mp
+            if self.model_name_subtype is None:
+                print("Loading MACE-MP model:")
+                print("Using medium-mpa-0 model by default (use model_name_subtype keyword to choose between small, medium, large or medium-mpa-0)")
+                self.model = mace_mp(model="medium", device=self.platform)
+            else:
+                print("MACE-MP model with modelname_subtype:", self.model_name_subtype)
+                self.model = mace_mp(model=self.model_name_subtype, device=self.platform)
+        # MACE Polar
+        elif self.model_name.lower() in ['mace-polar','mace_polar', 'mace-polar-1']:
+            from mace.calculators import mace_polar
+            if self.model_name_subtype is None:
+                print("Loading MACE-Polar model:")
+                #print("Using polar-1-m model by default (use model_name_subtype keyword to choose between polar-1-s, polar-1-m, polar-1-l)")
+                self.model = mace_polar(model="polar-1-m",
+                    device=self.platform,
+                    default_dtype=self.default_dtype) # use float32 for faster MD
+            else:
+                print("MACE-MP model with modelname_subtype:", self.model_name_subtype)
+                self.model = mace_polar(model=self.model_name_subtype,
+                    device=self.platform,
+                    default_dtype=self.default_dtype) # use float32 for faster MD
+        else:
+            print("No valid model_name was found that could be loaded (typo?)")
+            ashexit()
+        # Enabling new_interface for these models
+        self.new_interface = True
 
     def get_dipole_moment(self):
         if "dipole" not in self.properties:
@@ -284,49 +380,68 @@ class MACETheory():
             else:
                 qm_elems = elems
 
-        # Check availability of model before proceeding further
-        if self.model_file is None:
-            print("MACETheory model_file has not been defined.")
-            print("Either load a valid model or train a model")
-            ashexit()
-        # Checking if file exists
-        self.check_file_exists(self.model_file)
-
-        # Making sure Grad is True
+        # Making sure Grad is True if doing Hessian
         if Hessian:
             Grad=True
 
-        # Checking that model is loaded
+        # Checking if model is alreadyloaded
         if self.model is None:
-            print("Model has not been loaded yet.")
-            self.model_load()
+            print("A model has not been loaded yet.")
+            # We can only proceed if we have a model_file or model_name so checking
+            if self.model_file is None and self.model_name is None:
+                print("Neither model_file or model_name have been defined.")
+                print("Either load a valid model (model_file or model_name keywords) or train a model (train method) before running")
+                ashexit()
 
-        # New simpler MACE interface
-        if self.polarmace:
-            print("This is a polar MACE model. Running using different interface.")
+            # Loading will define self.model
+            if self.model_file is not None:
+                print("Loading MACE model from file:", self.model_file)
+                # Checking first f file exists
+                self.check_file_exists(self.model_file)
+                #Load model
+                self.modelfile_load()
+            elif self.model_name is not None:
+                print("Loading via model_name")
+                self.modelname_load()
+            else:
+                print("Error: Neither modelfile or modelname was defined.")
+                ashexit()
 
-            # Simplest to use ase here to create Atoms object
-            import ase
+        # Creating ASE atoms object (MACE has ASE has dependency anyway)
+        import ase
+        if self.periodic:
+            atoms = ase.atoms.Atoms(qm_elems,positions=current_coords, cell=self.periodic_cell_vectors,
+                                    pbc=True)
+        else:
             atoms = ase.atoms.Atoms(qm_elems,positions=current_coords)
+        atoms.info["charge"] = charge
+        atoms.info["spin"] = mult
 
-            atoms.info["charge"] = charge
-            atoms.info["spin"] = mult
-            # atoms.info["external_field"] = [0.0, 0.0, 0.0]
+        # New simpler MACE interface via ASE
+        # Works for foundational models
+        if self.new_interface is True:
+            # Add loaded model to ASE calculator
             atoms.calc = self.model
 
+            # Run energy
             self.energy = atoms.get_potential_energy() * ash.constants.evtohar
+            print("Energy:", self.energy)
             forces = atoms.get_forces()
             self.gradient = forces/-51.422067090480645
-            # stress = atoms.get_stress()
-            # TODO: Hessian ?
+            if self.stress:
+                stress_ev_ang3 = atoms.get_stress(voigt=False)
+                self.cell_gradient = stress_to_grad(stress_ev_ang3,atoms.get_volume(), atoms.get_cell())
+                print("Cell gradient:", self.cell_gradient)
 
-            # Grab some other attributes 
-            # Charges
-            self.charges = self.model.results["charges"]
-            # dipole
-            #mu = calc.results["dipole"]
-            self.properties["dipole"] = self.model.results["dipole"]
-        # Older interface
+            # Grab some other attributes if e.g. polarmace
+            if self.polarmace:
+                self.charges = self.model.results["charges"]
+                print("PolarMACE: Getting charges:", self.charges)
+                # dipole
+                self.properties["dipole"] = self.model.results["dipole"]
+                print("PolarMACE: Getting dipole:", self.properties["dipole"])
+
+        # Older interface: suitable for loading user-trained regular MACE models
         else:
             # Call model to get energy
             from mace.cli.eval_configs import main
@@ -334,11 +449,7 @@ class MACETheory():
             from mace.tools import torch_geometric, torch_tools, utils
             from mace.tools import utils, to_one_hot, atomic_numbers_to_indices
             import torch
-            from mace.modules.utils import compute_hessians_vmap, compute_hessians_loop, compute_forces
-
-            # Simplest to use ase here to create Atoms object
-            import ase
-            atoms = ase.atoms.Atoms(qm_elems,positions=current_coords)
+            from mace.modules.utils import compute_hessians_vmap, compute_hessians_loop, compute_forces, compute_forces_virials
 
             # Charge and spin: only makes sense for mace_polar
             atoms.info["charge"] = charge
@@ -355,27 +466,31 @@ class MACETheory():
             #
             # Get batch
             for batch in data_loader:
-                batch = batch.to(self.device)
+                batch = batch.to(self.platform)
             # Run model
             try:
-                output = self.model(batch.to_dict(), compute_stress=False, compute_force=False)
-
+                output = self.model(batch.to_dict(), compute_stress=self.stress, compute_force=Grad)
             except RuntimeError as e:
                 print("RuntimeError occurred. Trying type changes. Message", e)
                 self.model = self.model.float() # sometimes necessary to avoid type problems
-                output = self.model(batch.to_dict(), compute_stress=False, compute_force=False)
+                output = self.model(batch.to_dict(), compute_stress=self.stress, compute_force=Grad)
             print_time_rel(module_init_time, modulename=f'MACE run - after energy', moduleindex=2)
             # Grab energy
             en = torch_tools.to_numpy(output["energy"])[0]
             self.energy = float(en*ash.constants.evtohar)
-
             # Grad Boolean
             if Grad:
+                self.gradient = torch_tools.to_numpy(output["forces"])/-51.422067090480645
+                if self.stress:
+                    stress_ev_ang3 = torch_tools.to_numpy(output["stress"][0])
+                    self.cell_gradient = stress_to_grad(stress_ev_ang3,atoms.get_volume(), atoms.get_cell())
+                    print("Cell gradient:",self.cell_gradient)
+
                 # Calculate forces
-                forces_tensor = compute_forces(output["energy"], batch["positions"])
-                print_time_rel(module_init_time, modulename=f'MACE run - after forces', moduleindex=2)
-                forces_np = torch_tools.to_numpy(forces_tensor)
-                self.gradient = forces_np/-51.422067090480645
+                #forces_tensor = compute_forces(output["energy"], batch["positions"])
+                #print_time_rel(module_init_time, modulename=f'MACE run - after forces', moduleindex=2)
+                #forces_np = torch_tools.to_numpy(forces_tensor)
+                #self.gradient = forces_np/-51.422067090480645
 
             # Hessian 
             if Hessian:
@@ -417,7 +532,7 @@ class MACETheory():
 # r_max: cutoff radius of local env. Recommended: 4-7 Ang
 #NOTE: E0s="average" is easiest but not recommended.
 ##todo: seed
-def write_mace_config(config_file="config.yml", name="model",model="MACE", device='cpu', 
+def write_mace_config(config_file="config.yml", name="model",model="MACE", platform='cpu',device=None, 
                       valid_fraction=0.1, train_file="train_data_mace.xyz",E0s=None,
                       energy_key='energy_REF', forces_key='forces_REF',        
                       energy_weight=1, forces_weight=100,
@@ -457,3 +572,9 @@ swa= swa)
 
     with open(config_file, 'w') as outfile:
         yaml.dump(data, outfile, default_flow_style=False, sort_keys=False)
+
+def stress_to_grad(stress_ev_ang3,vol,cell):
+    inv_cell_T = np.linalg.inv(cell).T
+    grad_ev_ang = vol * np.dot(stress_ev_ang3, inv_cell_T)
+    cell_gradient = grad_ev_ang * (0.5291772105638411 / 27.211386024367243)
+    return cell_gradient
