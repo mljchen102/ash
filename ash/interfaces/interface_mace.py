@@ -12,8 +12,8 @@ import ash.constants
 class MACETheory():
     def __init__(self, config_filename="config.yml",
                  model_name=None, model_name_subtype=None, model_name_head=None,
-                 filename="mace.model", model_file=None, printlevel=2, mace_load_dispersion=False,
-                 label="MACETheory", numcores=1, platform="cpu", device=None, return_zero_gradient=False, polarmace=False, default_dtype="float64",
+                 model_file=None, printlevel=2, mace_load_dispersion=False,
+                 label="MACETheory", numcores=1, platform="cpu", device=None, return_zero_gradient=False, default_dtype="float64",
                  energy_weight=None, forces_weight=None, max_num_epochs=None, valid_fraction=None,
                  periodic=False, periodic_cell_vectors=None, periodic_cell_dimensions=None):
 
@@ -23,7 +23,6 @@ class MACETheory():
         self.analytic_hessian = True
         self.numcores = numcores
         self.config_filename=config_filename
-        self.filename = filename
         self.printlevel = printlevel
         self.properties = {}
 
@@ -449,7 +448,6 @@ class MACETheory():
             from mace.tools import torch_geometric, torch_tools, utils
             from mace.tools import utils, to_one_hot, atomic_numbers_to_indices
             import torch
-            from mace.modules.utils import compute_hessians_vmap, compute_hessians_loop, compute_forces, compute_forces_virials
 
             # Charge and spin: only makes sense for mace_polar
             atoms.info["charge"] = charge
@@ -486,22 +484,21 @@ class MACETheory():
                     self.cell_gradient = stress_to_grad(stress_ev_ang3,atoms.get_volume(), atoms.get_cell())
                     print("Cell gradient:",self.cell_gradient)
 
-                # Calculate forces
-                #forces_tensor = compute_forces(output["energy"], batch["positions"])
-                #print_time_rel(module_init_time, modulename=f'MACE run - after forces', moduleindex=2)
-                #forces_np = torch_tools.to_numpy(forces_tensor)
-                #self.gradient = forces_np/-51.422067090480645
-
             # Hessian 
             if Hessian:
                 print("Running Hessian")
+                from mace.modules.utils import compute_hessians_vmap, compute_forces
+                # 
+                forces_tensor = compute_forces(output["energy"], batch["positions"])
+                forces_np = torch_tools.to_numpy(forces_tensor)
+                self.gradient = forces_np/-51.422067090480645
+                # Calculate forces
                 hess = compute_hessians_vmap(forces_tensor,batch["positions"])
                 hessian = torch_tools.to_numpy(hess)
                 print("hessian:", hessian)
                 print_time_rel(module_init_time, modulename=f'MACE run - after hessian', moduleindex=2)
-
-        if Hessian:
-            self.hessian = hessian*0.010291772
+                self.hessian = hessian*0.010291772
+        
         print(f"Single-point {self.theorynamelabel} energy:", self.energy)
         print(BC.OKBLUE, BC.BOLD, f"------------ENDING {self.theorynamelabel} INTERFACE-------------", BC.END)
 

@@ -4,6 +4,7 @@ from ash.functions.functions_general import ashexit, BC,print_time_rel, print_li
 from ash.modules.module_coords import nucchargelist, create_coords_string, cell_vectors_to_params, cell_params_to_vectors
 from ash.modules.module_results import ASH_Results
 from ash.functions.functions_elstructure import get_ec_entropy,get_entropy
+from ash.modules.module_singlepoint import Singlepoint
 import os
 import sys
 import glob
@@ -1231,9 +1232,10 @@ class PySCFTheory:
         print(natocc)
         print()
         print("NO-based polyradical metrics:")
-        ash.functions.functions_elstructure.poly_rad_index_nu(natocc)
-        ash.functions.functions_elstructure.poly_rad_index_nu_nl(natocc)
-        ash.functions.functions_elstructure.poly_rad_index_n_d(natocc)
+        from ash.functions.functions_elstructure import poly_rad_index_nu, poly_rad_index_nu_nl, poly_rad_index_n_d
+        poly_rad_index_nu(natocc)
+        poly_rad_index_nu_nl(natocc)
+        poly_rad_index_n_d(natocc)
         print()
         molden_name=f"pySCF_MP2_natorbs"
         print(f"Writing MP2 natural orbitals to Moldenfile: {molden_name}.molden")
@@ -1874,9 +1876,10 @@ class PySCFTheory:
         print(natocc)
         print()
         print("NO-based polyradical metrics:")
-        ash.functions.functions_elstructure.poly_rad_index_nu(natocc)
-        ash.functions.functions_elstructure.poly_rad_index_nu_nl(natocc)
-        ash.functions.functions_elstructure.poly_rad_index_n_d(natocc)
+        from ash.functions.functions_elstructure import poly_rad_index_nu, poly_rad_index_nu_nl, poly_rad_index_n_d
+        poly_rad_index_nu(natocc)
+        poly_rad_index_nu_nl(natocc)
+        poly_rad_index_n_d(natocc)
         print()
         print(f"Writing {self.CCmethod} natural orbitals to Moldenfile: {molden_name}.molden")
         self.write_orbitals_to_Moldenfile(self.mol, natorb, natocc,  label=molden_name)
@@ -3045,8 +3048,8 @@ class PySCFTheory:
             if PC is True:
                 if self.printlevel >=1:
                     print("Calculating pointcharge gradient")
-
-                current_MM_coords_bohr = current_MM_coords*ash.constants.ang2bohr
+                from ash.constants import ang2bohr
+                current_MM_coords_bohr = current_MM_coords*ang2bohr
                 checkpoint=time.time()
 
                 if self.PC_gradient_code == "new":
@@ -3190,20 +3193,22 @@ def pyscf_pointcharge_gradient(mol,mm_coords,mm_charges,dm, GPU=False):
 def pyscf_MR_correction(fragment, theory=None, MLmethod='CCSD(T)'):
     print_line_with_mainheader("pyscf_MR_correction")
     print("Multireference correction via pyscf-based theories: Dice or Block. Calculates difference w.r.t CCSD(T)")
+    from ash.interfaces.interface_dice import DiceTheory
+    from ash.interfaces.interface_block import BlockTheory
     #Checking that correct theory is provided
     if theory == None:
         print("Theory must be provided")
         ashexit()
-    elif isinstance(theory,ash.DiceTheory):
+    elif isinstance(theory,DiceTheory):
         print("DiceTheory object provided")
-    elif isinstance(theory,ash.BlockTheory):
+    elif isinstance(theory,BlockTheory):
         print("BlockTheory object provided")
     else:
         print("Unrecognized theory object provided. Must be DiceTheory or BlockTheory")
         ashexit()
 
     #Now calling Singlepoint on the HLTheory
-    result_HL = ash.Singlepoint(fragment=fragment, theory=theory)
+    result_HL = Singlepoint(fragment=fragment, theory=theory)
 
     ###################################
     #Active space CCSD or CCSD(T) via pyscf
@@ -3305,7 +3310,7 @@ def pyscf_CCSD_T_natorb_selection(fragment=None, pyscftheoryobject=None, numcore
 
     #Use input PySCFTheory object for MF calculation and run
     pyscfcalc = pyscftheoryobject
-    result = ash.Singlepoint(fragment=fragment, theory=pyscfcalc) #Run a SP job using object
+    result = Singlepoint(fragment=fragment, theory=pyscfcalc) #Run a SP job using object
 
     #Define frozen core
     frozen_orbital_indices=pyscfcalc.determine_frozen_core(fragment.elems)
@@ -3321,7 +3326,8 @@ def pyscf_CCSD_T_natorb_selection(fragment=None, pyscftheoryobject=None, numcore
     if Do_CC_active_space is True:
         #Select active space
         full_list = list(range(0,pyscfcalc.num_orbs))
-        act_list = ash.select_indices_from_occupations(MP2_natocc,selection_thresholds=thresholds)
+        from ash.functions.functions_elstructure import select_indices_from_occupations
+        act_list = select_indices_from_occupations(MP2_natocc,selection_thresholds=thresholds)
         print("Full orbital list:", full_list)
         print("Size of full orbital list:", len(full_list))
         print("Selected active orbital list:", act_list)
@@ -3805,13 +3811,13 @@ def DFA_error_analysis(fragment=None, DFA_obj=None, REF_obj=None, DFA_DM=None, R
     if DFA_DM is None:
         print("Warning: No DFA_DM matric provided to DFA_error_analysis")
         print("Now doing single-point calculation using DFA_obj to get DM")
-        dfa_result = ash.Singlepoint = ash.Singlepoint(fragment=fragment, theory=DFA_obj)
+        dfa_result = Singlepoint(fragment=fragment, theory=DFA_obj)
         DFA_DM = DFA_obj.dm
         DFA_E = dfa_result.energy
     if REF_DM is None:
         print("Warning: No REF_DM matric provided to DFA_error_analysis")
         print("Now doing single-point calculation using REF_obj to get REF_DM")
-        ref_result = ash.Singlepoint = ash.Singlepoint(fragment=fragment, theory=REF_obj)
+        ref_result = Singlepoint(fragment=fragment, theory=REF_obj)
         REF_DM = REF_obj.dm
 
     if REF_E is None:
@@ -3841,7 +3847,6 @@ def DFA_error_analysis(fragment=None, DFA_obj=None, REF_obj=None, DFA_DM=None, R
     #Not using run_SCF anymore as we may have post-SCF contributions
     DFA_obj.dm=ref_DM_inv
     DFA_obj.scf_maxiter=0
-    from ash import Singlepoint
     res = Singlepoint(theory=DFA_obj, fragment=fragment)
     #scf_result_1 = DFA_obj.run_SCF(dm=ref_DM_inv, max_cycle=0)
     E_DFA_nref=res.energy
