@@ -39,10 +39,10 @@ class MACETheory():
         # Ignore predicted forces and return zero gradient
         self.return_zero_gradient=return_zero_gradient
 
-        # Distinguish between old MACE and polarMACE
-        self.polarmace=polarmace
+        # Polarmace (activated later if detected)
+        self.polarmace=False
 
-        # 
+        # New interface: activated later if needed
         self.new_interface=False
 
         self.default_dtype=default_dtype
