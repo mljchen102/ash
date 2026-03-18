@@ -8,7 +8,6 @@ import itertools
 
 #import ash
 import ash.constants
-import ash.modules.module_coords
 
 ashpath = os.path.dirname(ash.__file__)
 from ash.functions.functions_general import ashexit, BC, print_time_rel, listdiff, printdebug, print_line_with_mainheader, find_replace_string_in_file, \
@@ -17,8 +16,8 @@ from ash.functions.functions_general import ashexit, BC, print_time_rel, listdif
 
 from ash.functions.functions_elstructure import DDEC_calc, DDEC_to_LJparameters
 from ash.modules.module_coords import Fragment, write_pdbfile, distance_between_atoms, list_of_masses, write_xyzfile, \
-    change_origin_to_centroid, get_centroid, check_charge_mult, check_gradient_for_bad_atoms, get_molecule_members_loop_np2
-    
+    change_origin_to_centroid, get_centroid, check_charge_mult, check_gradient_for_bad_atoms, get_molecule_members_loop_np2, \
+    cell_params_to_vectors, cell_vectors_to_params, define_dummy_topology
 from ash.modules.module_MM import UFF_modH_dict, MMforcefield_read
 from ash.interfaces.interface_xtb import xTBTheory, grabatomcharges_xTB
 from ash.interfaces.interface_ORCA import ORCATheory, grabatomcharges_ORCA, chargemodel_select
@@ -39,7 +38,7 @@ class OpenMMTheory:
                  nonbondedMethod_noPBC='NoCutoff', nonbonded_cutoff_noPBC=20,
                  xmlfiles=None, pdbfile=None, use_parmed=False, xmlsystemfile=None,
                  do_energy_decomposition=False,
-                 periodic=False, periodic_cell_dimensions=None, PBCvectors=None,
+                 periodic=False, periodic_cell_dimensions=None, PBCvectors=None, periodic_cell_vectors=None,
                  charmm_periodic_cell_dimensions=None, customnonbondedforce=False,
                  periodic_nonbonded_cutoff=12,  dispersion_correction=True,
                  nonbondedMethod_PBC='PME',
@@ -195,7 +194,7 @@ class OpenMMTheory:
         # Initializing
         self.coords = []
         self.charges = []
-        self.Periodic = periodic
+        self.periodic = periodic
         self.periodic_nonbonded_cutoff=periodic_nonbonded_cutoff
         self.nonbonded_cutoff_noPBC=nonbonded_cutoff_noPBC
         #Methods for nonbonded interactions, PBC and no-PBC
@@ -233,6 +232,13 @@ class OpenMMTheory:
 
         # Initializing
         pdb_pbc_vectors=None
+
+        # Phasing out PBCvectors
+        if PBCvectors is not None:
+            print("Warning: PBCvectors keyword is on its way out. Use periodic_cell_vectors instead")
+            if periodic_cell_vectors is None:
+                periodic_cell_vectors=PBCvectors
+
 
         # #Always creates object we call self.forcefield that contains topology attribute
         if CHARMMfiles is True:
@@ -341,10 +347,10 @@ class OpenMMTheory:
                 #if float(openmm.__version__) >= 8.1:
                 if version.parse(openmm.__version__) >= version.parse("8.1"):
 
-                    if PBCvectors is None:
+                    if periodic_cell_vectors is None:
                         temp_pbc_vecs=None
                     else:
-                        temp_pbc_vecs=PBCvectors*openmm.unit.angstrom #Adding units
+                        temp_pbc_vecs=periodic_cell_vectors*openmm.unit.angstrom #Adding units
                     #If cell dims provided instead
                     if periodic_cell_dimensions is None:
                         temp_pbc_cell_value=None
@@ -492,7 +498,6 @@ class OpenMMTheory:
             #Creating new 
             #fragment.define_topology()
             #self.topology = fragment.pdb_topology
-            from ash.modules.module_coords import define_dummy_topology
             self.topology = define_dummy_topology(fragment.elems)
 
             # Create dummy XML file
@@ -543,13 +548,13 @@ class OpenMMTheory:
         # NOW CREATE SYSTEM UNLESS already created (xmlsystemfile)
         if self.system is None:
             # Periodic or non-periodic ystem
-            if self.Periodic is True:
+            if self.periodic is True:
                 if self.printlevel > 0:
                     print("System is periodic.")
                     print_line_with_subheader1("Setting up periodicity.")
                     #Inspect and set PBC in self.topology and self.forcefield
                     #Necessary for system creation with periodics (otherwise failure)
-                    self.set_periodics_before_system_creation(PBCvectors,pdb_pbc_vectors,periodic_cell_dimensions,CHARMMfiles,Amberfiles,use_parmed,)
+                    self.set_periodics_before_system_creation(periodic_cell_vectors,pdb_pbc_vectors,periodic_cell_dimensions,CHARMMfiles,Amberfiles,use_parmed,)
 
                 #Nonbonded method to use for PBC
                 if self.nonbondedMethod_PBC == 'PME':
@@ -618,13 +623,9 @@ class OpenMMTheory:
                                                                rigidWater=self.rigidwater, ewaldErrorTolerance=self.ewalderrortolerance,
                                                                nonbondedCutoff=self.periodic_nonbonded_cutoff * openmm.unit.angstroms, residueTemplates=residueTemplates)
 
-                # FINAL PRINTING OF SYSTEM PBC VECTORS
-                a, b, c = self.system.getDefaultPeriodicBoxVectors()
-                if self.printlevel > 0:
-                    print_line_with_subheader2("Periodic vectors:")
-                    print(a)
-                    print(b)
-                    print(c)
+                # Setting as periodic_cell_vectors
+                self.periodic_cell_vectors = np.array([[v._value*10 for v in vec] for vec in self.system.getDefaultPeriodicBoxVectors()])
+                print("Periodic_cell_vectors (Å)", periodic_cell_vectors)
 
                 # Force modification here
                 # print("OpenMM Forces defined:", self.system.getForces())
@@ -936,29 +937,29 @@ class OpenMMTheory:
             ashexit()
 
     #Function that handles periodicity in forcefield objects (for Amber, CHARMM). TODO: Test GROMACS and XML
-    def set_periodics_before_system_creation(self,PBCvectors,pdb_pbc_vectors,periodic_cell_dimensions,CHARMMfiles,Amberfiles,use_parmed):
+    def set_periodics_before_system_creation(self,periodic_cell_vectors,pdb_pbc_vectors,periodic_cell_dimensions,CHARMMfiles,Amberfiles,use_parmed):
         import openmm
         from packaging import version
         if use_parmed is True:
             import parmed
         print("Inspecting periodicity input before system creation")
-        print("PBCVectors:", PBCvectors)
+        print("periodic_cell_vectors:", periodic_cell_vectors)
         print("periodic_cell_dimensions:", periodic_cell_dimensions)
         print("pdb_pbc_vectors:", pdb_pbc_vectors)
         #IF PBC vectors provided then we need to set them in the topology (otherwise system creation does not work)
-        if PBCvectors is not None:
-            print("\nPBC vectors provided by user (in Angstrom):", PBCvectors)
+        if periodic_cell_vectors is not None:
+            print("\nPBC vectors provided by user (in Angstrom):", periodic_cell_vectors)
             print("Setting PBC vectors in topology object")
-            self.topology.setPeriodicBoxVectors(PBCvectors*openmm.unit.angstroms)
+            self.topology.setPeriodicBoxVectors(periodic_cell_vectors*openmm.unit.angstroms)
             print("Topology PBC vectors set:", self.topology.getPeriodicBoxVectors())
             #Setting PBC forcefield object
             print("Setting PBC box vectors in forcefield object")
             if CHARMMfiles is True:
-                self.forcefield.box_vectors = PBCvectors*openmm.unit.angstrom
+                self.forcefield.box_vectors = periodic_cell_vectors*openmm.unit.angstrom
                 print("PBC box vectors set:", self.forcefield.box_vectors)
             elif Amberfiles is True and use_parmed is True:
                 #Necessary for parmed object to define box_vectors in forcefield object
-                self.forcefield.box_vectors = PBCvectors*openmm.unit.angstrom
+                self.forcefield.box_vectors = periodic_cell_vectors*openmm.unit.angstrom
                 print("PBC box vectors set:", self.forcefield.box_vectors)
             elif Amberfiles is True and use_parmed is False:
                 #Not necessary to define box_vectors (grabbed from topology above) but we have to make sure PBC is on
@@ -973,10 +974,9 @@ class OpenMMTheory:
                     print("Warning: Will assume cubic box and set PBC vectors in a hacky way")
                     self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"] =np.array([0.0,0.0,0.0,0.0])
                     self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][0] = 90.0
-                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][1] = PBCvectors[0][0]
-                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][2] = PBCvectors[1][1]
-                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][3] = PBCvectors[2][2]
-
+                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][1] = periodic_cell_vectors[0][0]
+                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][2] = periodic_cell_vectors[1][1]
+                    self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][3] = periodic_cell_vectors[2][2]
         elif periodic_cell_dimensions is not None:
             print("\nPBC cell dimensions provided by user:", periodic_cell_dimensions)
             #print("Setting PBC vectors in topology")
@@ -1037,7 +1037,7 @@ class OpenMMTheory:
                     self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][2] = periodic_cell_dimensions[1]
                     self.forcefield._prmtop._raw_data["BOX_DIMENSIONS"][3] = periodic_cell_dimensions[2]
         elif pdb_pbc_vectors is not None:
-            print("Warning: neither user keyword PBCvectors or periodic_cell_dimensions was set (None)")
+            print("Warning: neither user keyword periodic_cell_vectors or periodic_cell_dimensions was set (None)")
             print("However, we found PBC information inside PDB-topology of the PDB-file that was read in. Using this and continuing")
             #Should work automatically
         elif self.topology.getPeriodicBoxVectors() is not None:
@@ -1076,6 +1076,55 @@ class OpenMMTheory:
                range(len(coords_nm))] * openmm.unit.nanometer
         simulation.context.setPositions(pos)
         print_if_level("Coordinates set", self.printlevel,1)
+
+    # Update cell using either periodic_cell_vectors or periodic_cell_dimensions
+    # This method is called by Periodic optimizers
+    def update_cell(self,periodic_cell_vectors=None, periodic_cell_dimensions=None):
+        import openmm
+        print("Updating cell vectors")
+        print("New periodic_cell_vectors are:", periodic_cell_vectors)
+        if periodic_cell_vectors is not None:
+            self.periodic_cell_vectors = periodic_cell_vectors
+            self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+        elif periodic_cell_dimensions is not None:
+            self.periodic_cell_dimensions=periodic_cell_dimensions
+            self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+        
+        # Now updating actual OpenMM objects
+        #Converting to nm
+        cellvecs_nm = self.periodic_cell_vectors/10
+        a = cellvecs_nm[0]
+        b = cellvecs_nm[1]
+        c = cellvecs_nm[2]
+
+        # We may have to adjust the nonbonded cutoff.
+        # Shortest box dimension (diagonal elements, safe estimate for triclinic)
+        min_box_dim = min(cellvecs_nm[0,0], cellvecs_nm[1,1], cellvecs_nm[2,2])
+        hard_limit_cutoff = 0.499 * min_box_dim  # just under OpenMM's hard limit of 0.5
+
+        # Find NonbondedForce and update cutoff only if the box has become too small
+        for i in range(self.system.getNumForces()):
+            force = self.system.getForce(i)
+            if isinstance(force, openmm.NonbondedForce):
+                current_cutoff = force.getCutoffDistance().value_in_unit(openmm.unit.nanometer)
+
+                # Store the original intended cutoff the first time we see it
+                if not hasattr(self, '_original_cutoff_nm'):
+                    self._original_cutoff_nm = current_cutoff
+                    print(f"Storing original cutoff: {self._original_cutoff_nm:.3f} nm")
+
+                # Desired cutoff: restore original if box allows, otherwise use hard limit
+                desired_cutoff = min(self._original_cutoff_nm, hard_limit_cutoff)
+
+                if abs(desired_cutoff - current_cutoff) > 1e-6:  # only update if actually changed
+                    print(f"Adjusting cutoff from {current_cutoff:.3f} to {desired_cutoff:.3f} nm "
+                        f"(box limit: {hard_limit_cutoff:.3f} nm, original: {self._original_cutoff_nm:.3f} nm)")
+                    force.setCutoffDistance(desired_cutoff * openmm.unit.nanometer)
+                break
+        # Note we are modifying the system and topology itself because we are doing OpenMMTheory.run that creates new sim and context each time
+        self.system.setDefaultPeriodicBoxVectors(a,b,c)
+        #Topology
+        self.topology.setPeriodicBoxVectors(cellvecs_nm)
 
     #Add dummy
     #https://simtk.org/plugins/phpBB/viewtopicPhpbb.php?f=161&t=10049&p=0&start=0&view=&sid=b844250e55b14682fb21b5f66a4d810f
@@ -1195,7 +1244,7 @@ class OpenMMTheory:
         print(f"Forceconstant: {forceconstant} kcal/mol/Ang^2")
         print(f"Force acting at values larger than {distance} Ang:")
         #Distinguish periodic and nonperiodic scenarios:
-        if self.Periodic is True:
+        if self.periodic is True:
             centerforce = openmm.CustomExternalForce("0.5*k * max(0,periodicdistance(x, y, z, x0, y0, z0) - r0)^2")
         else:
             centerforce = openmm.CustomExternalForce("0.5*k * max(0,((x-x0)^2+(y-y0)^2+(z-z0)^2)-r0)^2")
@@ -1244,7 +1293,7 @@ class OpenMMTheory:
         #centerforce = openmm.CustomCentroidBondForce(2, "0.5*k*(distance(g1,g2)-r0)^2")
         centerforce = openmm.CustomCentroidBondForce(2, "0.5*k*max(0, distance(g1,g2)-r0)^2")
         #Periodic case (note: periodicdistance not available for CustomCentroidBondForce)
-        if self.Periodic is True:
+        if self.periodic is True:
             print("Warning: add_flatbottom_centerforce with PBC is not well tested")
             centerforce.setUsesPeriodicBoundaryConditions=True
             #centerforce = openmm.CustomExternalForce("k *periodicdistance(x, y, z, x0, y0, z0)")
@@ -1622,12 +1671,12 @@ class OpenMMTheory:
             #NOTE: Not sure if needed anymore
             self.simulation = openmm.app.simulation.Simulation(self.topology, self.system, self.integrator,
                                                             openmm.Platform.getPlatformByName(self.platform_choice),
-                                                                self.properties)
+                                                            self.properties)
             return
         else:
             simulation = openmm.app.simulation.Simulation(self.topology, self.system, self.integrator,
                                                             openmm.Platform.getPlatformByName(self.platform_choice),
-                                                                self.properties)
+                                                            self.properties)
             print_time_rel(timeA, modulename="creating/updating simulation", currprintlevel=self.printlevel)
             return simulation
 
@@ -1698,6 +1747,41 @@ class OpenMMTheory:
         if any(type(self.system.getForce(i)) == openmm.CMMotionRemover for i in range(self.system.getNumForces())):
             dof -= 3
         self.dof=dof
+
+    # Compute cell gradient numerically
+    def compute_cell_gradient_fd(self,context, eps=1e-4):
+        import openmm
+        # Conversion factors
+        NM_TO_BOHR = 18.89726124  # 1 nm = 18.897... Bohr
+        KJMOL_TO_EH = 1.0 / 2625.4996  # 1 kJ/mol = 1/2625.5 Hartree
+        eps_nm = eps / NM_TO_BOHR  # convert eps to nm for OpenMM
+
+        state = context.getState(getEnergy=True, getPositions=True)
+        E0 = state.getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole) * KJMOL_TO_EH
+        box = state.getPeriodicBoxVectors(asNumpy=True).value_in_unit(openmm.unit.nanometer)  # (3,3) in nm
+        print("box:", box)
+
+        # Only lower-triangular indices are valid for OpenMM triclinic box
+        valid_indices = [(0,0), (1,0), (1,1), (2,0), (2,1), (2,2)]
+
+        grad = np.zeros((3, 3))
+        for (i, j) in valid_indices:
+            box_pert = box.copy()
+            box_pert[i, j] += eps_nm
+            context.setPeriodicBoxVectors(*box_pert)
+            E_plus = context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(openmm.unit.kilojoule_per_mole) * KJMOL_TO_EH
+            grad[i, j] = (E_plus - E0) / eps  # dE[Eh] / dh[Bohr]
+            context.setPeriodicBoxVectors(*box)  # restore
+        return grad  # Eh/Bohr
+
+    # Get cell gradient (called by an Optimizer e.g.)
+    def get_cell_gradient(self):
+        print("Inside get_cell_gradient")
+        # First compute the cell gradient numerically
+        # Using self.stored_context (should have been defined by .run call)
+        self.cell_gradient = self.compute_cell_gradient_fd(self.stored_context, eps=1e-4)
+        print("OpenMM cell gradient:",self.cell_gradient)
+        return self.cell_gradient
 
     #NOTE: Adding charge/mult/PC here to  be consistent with QM_theories. Not used
     def run(self, current_coords=None, elems=None, Grad=False, fragment=None, qmatoms=None, label=None, charge=None, mult=None, PC=False, current_MM_coords=None, MMcharges=None,

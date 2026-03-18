@@ -110,6 +110,8 @@ class MACETheory():
             self.periodic_cell_dimensions=periodic_cell_dimensions
             self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
 
+    def get_cell_gradient(self):
+        return self.cell_gradient
 
     def train(self, config_file="config.yml", name="model",model="MACE", platform=None, device=None,
                       valid_fraction=0.1, train_file="train_data_mace.xyz",E0s=None,

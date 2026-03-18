@@ -481,7 +481,8 @@ def periodic_optimizer_alternating(fragment=None, theory=None, rate=0.5, maxiter
         res = geomeTRICOptimizer(theory=theory, fragment=fragment, force_noPBC=True, convergence_setting=atoms_tolsetting, maxiter=atom_opt_maxiter)
 
         # Check convergence of cell gradient
-        grad_norm = np.linalg.norm(theory.cell_gradient)
+        cell_gradient = theory.get_cell_gradient()
+        grad_norm = np.linalg.norm(cell_gradient)
         print(f"Current Cell Gradient Norm: {grad_norm:.6f}")
         if grad_norm < tol:
             print(f"Cell converged in {i} cell-iterations  (Gradient norm: {grad_norm:.6f} < tol={tol} Eh/Bohr)")
@@ -497,34 +498,34 @@ def periodic_optimizer_alternating(fragment=None, theory=None, rate=0.5, maxiter
         # Calculate cell vector step (in Bohrs)
         if step_algo.lower() =="sd":
             print("Doing steepest descent step")
-            delta_au = - (rate * theory.cell_gradient)
+            delta_au = - (rate * cell_gradient)
         elif step_algo.lower() == "damped-MD":
             print("Doing momentum step")
             print("velocity:", velocity)
-            velocity = (momentum * velocity) - (rate * theory.cell_gradient)
+            velocity = (momentum * velocity) - (rate * cell_gradient)
             print("velocity:", velocity)
             delta_au = velocity
         elif step_algo.lower() == "nesterov":
             # Storing old
             velocity_old = velocity.copy()
             print("Doing Nesterov momentum step")
-            velocity = (momentum * velocity) - (rate * theory.cell_gradient)
+            velocity = (momentum * velocity) - (rate * cell_gradient)
             nesterov_update = -momentum * velocity_old + (1 + momentum) * velocity
             delta_au = nesterov_update
         elif step_algo.lower() == "cg":
             print("Doing conjugate gradient step")
             if i == 0:
-                search_dir = theory.cell_gradient
+                search_dir = cell_gradient
                 prev_grad=None
             else:
                 # Polak-Ribière formula for beta
-                diff = theory.cell_gradient - prev_grad
-                beta = np.sum(theory.cell_gradient * diff) / np.sum(prev_grad * prev_grad)
+                diff = cell_gradient - prev_grad
+                beta = np.sum(cell_gradient * diff) / np.sum(prev_grad * prev_grad)
                 beta = max(0, beta) # Standard 'reset' for CG
-                search_dir = theory.cell_gradient + (beta * search_dir)
+                search_dir = cell_gradient + (beta * search_dir)
 
             delta_au = - (rate * search_dir)
-            prev_grad = theory.cell_gradient.copy()
+            prev_grad = cell_gradient.copy()
         else:
             print("Unknown step_algo")
             ashexit()
@@ -751,7 +752,8 @@ class Periodic_optimizer_cart_class:
 
         # Lattice gradient and masking
         # Total lattice gradient: current theory cell-gradient + convection
-        grad_latt_total = self.theory.cell_gradient
+        #grad_latt_total = self.theory.cell_gradient
+        grad_latt_total = self.theory.get_cell_gradient()
         # Standard orientation mask:
         # This zeros out: a_y, a_z, and b_z
         mask = np.array([

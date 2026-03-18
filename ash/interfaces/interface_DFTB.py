@@ -123,6 +123,9 @@ class DFTBTheory():
             self.periodic_cell_dimensions=periodic_cell_dimensions
             self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
 
+    def get_cell_gradient(self):
+        return self.cell_gradient
+
     # Run function. Takes coords, elems etc. arguments and computes E or E+G.
     def run(self, current_coords=None, current_MM_coords=None, MMcharges=None, qm_elems=None, mm_elems=None,
             elems=None, Grad=False, PC=False, numcores=None, restart=False, label=None,

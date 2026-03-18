@@ -449,6 +449,9 @@ class xTBTheory:
             from ash.modules.module_coords import cell_params_to_vectors
             self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
 
+    def get_cell_gradient(self):
+        return self.cell_gradient
+
     def run(self, current_coords=None, current_MM_coords=None, MMcharges=None, qm_elems=None, mm_elems=None, printlevel=None,
                 elems=None, Grad=False, PC=False, numcores=None, label=None, charge=None, mult=None):
         module_init_time=time.time()
@@ -1234,6 +1237,9 @@ class tbliteTheory(Theory):
 
             from ash.modules.module_coords import cell_params_to_vectors
             self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+
+    def get_cell_gradient(self):
+        return self.cell_gradient
 
     def run(self, current_coords=None, current_MM_coords=None, MMcharges=None, qm_elems=None, mm_elems=None,
             elems=None, Grad=False, PC=False, numcores=None, restart=False, label=None,

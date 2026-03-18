@@ -1097,7 +1097,8 @@ class ASHengineclass:
 
         # Lattice gradient and masking
         #Total lattice gradient: current theory cell-gradient + convection
-        grad_latt_total = self.theory.cell_gradient
+        #grad_latt_total = self.theory.cell_gradient
+        grad_latt_total = self.theory.get_cell_gradient()
         # Standard orientation mask:
         # This zeros out: a_y, a_z, and b_z
         mask = np.array([

@@ -2006,6 +2006,9 @@ class PySCFTheory:
             exit()
         else:
             print("pySCF cell object not yet created")
+    
+    def get_cell_gradient(self):
+        return self.cell_gradient
 
     #Define basis in mol object
     def define_basis(self,elems=None):
