@@ -12,7 +12,7 @@ import ash.constants
 class MACETheory():
     def __init__(self, config_filename="config.yml",
                  model_name=None, model_name_subtype=None, model_name_head=None,
-                 model_file=None, printlevel=2, mace_load_dispersion=False,
+                 model_file=None, printlevel=2, mace_load_dispersion=False, mace_dispersion_xc=None,
                  label="MACETheory", numcores=1, platform="cpu", device=None, return_zero_gradient=False, default_dtype="float64",
                  energy_weight=None, forces_weight=None, max_num_epochs=None, valid_fraction=None,
                  periodic=False, periodic_cell_vectors=None, periodic_cell_dimensions=None):
@@ -25,6 +25,11 @@ class MACETheory():
         self.config_filename=config_filename
         self.printlevel = printlevel
         self.properties = {}
+
+        # Parallelization at CPU level
+        os.environ['OMP_NUM_THREADS'] = str(numcores)
+        os.environ['MKL_NUM_THREADS'] = str(numcores)
+        os.environ['OPENBLAS_NUM_THREADS'] = str(numcores)
 
         print_line_with_mainheader(f"{self.theorynamelabel}Theory initialization")
         # Early exits
@@ -55,7 +60,7 @@ class MACETheory():
         self.model_name_subtype=model_name_subtype #subtype of foundational model
         self.model_name_head = model_name_head # choose head of multi-head foundational model
         self.mace_load_dispersion=mace_load_dispersion # activate dispersion 
-
+        self.mace_dispersion_xc=mace_dispersion_xc # functional keyword
         # Training parameters
         self.energy_weight=energy_weight
         self.forces_weight=forces_weight
@@ -267,7 +272,7 @@ class MACETheory():
         module_init_time=time.time()
 
         if 'polar' in self.model_file.lower():
-            print("Model file name contains 'polar'. Assuming this is a polar MACE model. Loading special calculator")
+            print("Model file name contains 'polar'. Assuming this is a polar MACE model. Loading via mace_polar")
             self.polarmace=True
             self.new_interface=True
             from mace.calculators import mace_polar
@@ -276,15 +281,19 @@ class MACETheory():
                 device=self.platform,
                 default_dtype=self.default_dtype) # use float32 for faster MD)
         elif 'mh' in self.model_file.lower():
-            print("Model file name contains 'mh'. Assuming this is a multihead MACE model. Loading special calculator.")
+            print("Model file name contains 'mh'. Assuming this is a multihead MACE model. Loading via mace_mp.")
             self.new_interface=True
             from mace.calculators import mace_mp
+            print("D3 dispersion:", self.mace_load_dispersion)
+            print("D3 xc:", self.mace_dispersion_xc)
             if self.model_name_head is None:
-                print("Warning: no head provided. You probably need to select head by ASH model_name_head keyword. Will try to continue")
-                self.model = mace_mp(model=self.model_file, default_dtype=self.default_dtype, device=self.platform)
+                print("Error: no head provided for an MH model. You  need to select head by ASH model_name_head keyword.")
+                ashexit()
+                #self.model = mace_mp(model=self.model_file, default_dtype=self.default_dtype, device=self.platform)
             else:
                 print("Using head:", self.model_name_head)
-                self.model = mace_mp(model=self.model_file, default_dtype=self.default_dtype, device=self.platform, head=self.model_name_head)
+                self.model = mace_mp(model=self.model_file, default_dtype=self.default_dtype, device=self.platform, head=self.model_name_head,
+                                            dispersion=self.mace_load_dispersion, dispersion_xc=self.mace_dispersion_xc)
         else:
             print("Loading regular MACE via Pytorch")
             import torch
@@ -296,30 +305,52 @@ class MACETheory():
 
     # Load foundational model by name
     def modelname_load(self):
+        print("Inside modelname_load")
+        print("model_name:", self.model_name)
+        print("model_name_subtype:", self.model_name_subtype)
+        print("model_name_head:", self.model_name_head)
+        print("default_dtype:", self.default_dtype)
+        print()
         if self.model_name.lower() in ['mace-ani-cc','mace_anicc']:
             print("MACE-ANI-CC model requested")
             from mace.calculators import mace_anicc
-            self.model = mace_anicc(device=self.platform)
+            self.model = mace_anicc(device=self.platform, default_dtype=self.default_dtype)
+        # MACE-OMol
+        elif self.model_name.lower() in ['mace_omol','mace-omol']:
+            print("MACE-OMOL model requested")
+            from mace.calculators import mace_omol
+            print("Loading MACE-OMol model:")
+            print("Using extra_large model by default (MACE-omol-0-extra-large-1024.model)")
+            self.model = mace_omol(model="extra_large", device=self.platform, default_dtype=self.default_dtype)
+        # MACE-OFF
         elif self.model_name.lower() in ['mace_off23','mace_off', 'mace-off', 'mace-off23']:
             print("MACE-OFF model requested")
             from mace.calculators import mace_off
             if self.model_name_subtype is None:
                 print("Loading MACE-OFF model:")
                 print("Using medium model by default (use model_name_subtype keyword to choose small, medium, large)")
-                self.model = mace_off(model="medium", device=self.platform)
+                self.model = mace_off(model="medium", device=self.platform, default_dtype=self.default_dtype)
             else:
                 print("MACE-OFF model with modelname_subtype:", self.model_name_subtype)
-                self.model = mace_off(model=self.model_name_subtype, device=self.platform)
+                self.model = mace_off(model=self.model_name_subtype, device=self.platform, default_dtype=self.default_dtype)
         # MACE Materials Project (MP) models
-        elif self.model_name.lower() in ['mace-mp','medium-mpa-0','mace-mp-0', 'mace_mp']:
+        elif self.model_name.lower() in ['mace-mp','mace-mh']:
             from mace.calculators import mace_mp
             if self.model_name_subtype is None:
                 print("Loading MACE-MP model:")
                 print("Using medium-mpa-0 model by default (use model_name_subtype keyword to choose between small, medium, large or medium-mpa-0)")
-                self.model = mace_mp(model="medium", device=self.platform)
+                print("D3 dispersion:", self.mace_load_dispersion)
+                print("D3 xc:", self.mace_dispersion_xc)
+                self.model = mace_mp(model="medium", device=self.platform, default_dtype=self.default_dtype, 
+                                     dispersion=self.mace_load_dispersion, dispersion_xc=self.mace_dispersion_xc)
             else:
                 print("MACE-MP model with modelname_subtype:", self.model_name_subtype)
-                self.model = mace_mp(model=self.model_name_subtype, device=self.platform)
+                if self.model_name_head is None:
+                    print("No model_name_head chosen. Please choose head via keyword model_name_head.")
+                    ashexit()
+                else:
+                    self.model = mace_mp(model=self.model_name_subtype, head=self.model_name_head, device=self.platform, default_dtype=self.default_dtype,
+                                         dispersion=self.mace_load_dispersion, dispersion_xc=self.mace_dispersion_xc)
         # MACE Polar
         elif self.model_name.lower() in ['mace-polar','mace_polar', 'mace-polar-1']:
             from mace.calculators import mace_polar
@@ -385,6 +416,7 @@ class MACETheory():
         if Hessian:
             Grad=True
 
+        print("Running on platform/device:", self.platform)
         # Checking if model is alreadyloaded
         if self.model is None:
             print("A model has not been loaded yet.")
@@ -402,7 +434,7 @@ class MACETheory():
                 #Load model
                 self.modelfile_load()
             elif self.model_name is not None:
-                print("Loading via model_name")
+                print("Loading via model_name:", self.model_name)
                 self.modelname_load()
             else:
                 print("Error: Neither modelfile or modelname was defined.")
@@ -417,7 +449,7 @@ class MACETheory():
             atoms = ase.atoms.Atoms(qm_elems,positions=current_coords)
         atoms.info["charge"] = charge
         atoms.info["spin"] = mult
-
+    
         # New simpler MACE interface via ASE
         # Works for foundational models
         if self.new_interface is True:
