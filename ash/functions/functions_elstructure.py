@@ -1820,6 +1820,12 @@ def create_cubefile_from_orbfile(orbfile, option='density', grid=3, delete_temp_
         mfile = make_molden_file_ORCA(orbfile, printlevel=printlevel)
     print("Now using Multiwfn to create cube file from Moldenfile")
     cubefile = multiwfn_run(mfile, option=option, grid=grid, printlevel=printlevel)
+    if cubefile is None and option == 'spin-density' or option == 'spindensity':
+        if os.path.exists('spindensity.cub'):
+            cubefile = 'spindensity.cub'
+        else:
+            print("Spin density cube file not found. Something went wrong.")
+            ashexit()
     # Rename cubefile (shortens it)
     new_cubename=str(os.path.splitext(orbfile)[0])+".cube"
     os.rename(cubefile, new_cubename)
