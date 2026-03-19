@@ -4251,21 +4251,20 @@ def cell_vectors_to_params(vectors):
     return [float(a), float(b), float(c), float(alpha), float(beta), float(gamma)]
 
 # Basic conversion of Cartesian coordinates to fractional coordinates and reverse
-def cart_coords_to_fract(coords,cell_vectors):
-    h_inv = np.linalg.inv(cell_vectors)
-    fract_coords = np.dot(coords, h_inv.T)
-    return fract_coords
+def cart_coords_to_fract(cart_coords, cellvectors):
+    M = np.array(cellvectors)
+    frac = np.dot(cart_coords, np.linalg.inv(M))
+    return frac
 
-def fract_coords_to_cart(fract_coords,cell_vectors):
-    cart_coords = np.dot(fract_coords, cell_vectors.T)
-    return cart_coords
+def fract_coords_to_cart(fract_coords, cellvectors):
+    cart = np.dot(fract_coords, np.array(cellvectors))
+    return cart
 
 def cell_volume(vectors):
     a = vectors[0,:]
     b = vectors[1,:]
     c = vectors[2,:]
     V = abs(np.dot(a, np.cross(b, c)))
-
     return V
 
 # Write Cartesian-based POSCAR files

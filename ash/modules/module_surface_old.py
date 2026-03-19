@@ -119,7 +119,6 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
     print("keepoutputfiles: ", keepoutputfiles)
     print("keepmofiles: ", keepmofiles)
 
-
     pointcount=0
 
     # Check if theory is periodc
@@ -413,7 +412,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                                 pbcfile = convert_to_pbcfile(fragment.coords,fragment.elems,cellvectors=theory.periodic_cell_vectors)
                                 shutil.move(pbcfile, "surface_pbcfiles/RC1_"+str(RCvalue1)+"-RC2_"+str(RCvalue2)+f".{pbcfile.split('.')[-1]}")
 
-                            surfacedictionary[(RCvalue1,RCvalue2)] = energy
+                            surfacedictionary[(RCvalue1,RCvalue2)] = float(energy)
                             # Write surfacedictionary to file after each step
                             write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
                         else:
@@ -464,7 +463,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                             pbcfile = convert_to_pbcfile(fragment.coords,fragment.elems,cellvectors=theory.periodic_cell_vectors)
                             shutil.move(pbcfile, "surface_pbcfiles/RC1_"+str(RCvalue1)+f".{pbcfile.split('.')[-1]}")
 
-                        surfacedictionary[(RCvalue1)] = energy
+                        surfacedictionary[(RCvalue1)] = float(energy)
                         # Write surfacedictionary to file after each step
                         write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
                     else:
@@ -506,7 +505,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                                     shutil.copyfile(theory.filename+'.gbw', 'surface_mofiles/'+str(theory.filename)+'_'+pointlabel+'.gbw')
                             else:
                                 print("Warning: For hybrid theories, outputfiles and MO-files are not kept")
-                            surfacedictionary[(RCvalue1,RCvalue2)] = energy
+                            surfacedictionary[(RCvalue1,RCvalue2)] = float(energy)
 
                             # Write surfacedictionary to file after each step
                             write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
@@ -560,7 +559,7 @@ def calc_surface(fragment=None, theory=None, charge=None, mult=None, scantype='U
                                 shutil.copyfile(theory.filename+'.gbw', 'surface_mofiles/'+str(theory.filename)+'_'+pointlabel+'.gbw')
                         else:
                             print("Warning: For hybrid theories, outputfiles and MO-files are not kept")
-                        surfacedictionary[(RCvalue1)] = energy
+                        surfacedictionary[(RCvalue1)] = float(energy)
 
                         # Write surfacedictionary to file after each step
                         write_surfacedict_to_file(surfacedictionary,resultfile, dimension=dimension)
@@ -921,7 +920,7 @@ def calc_surface_fromXYZ(xyzdir=None, multixyzfile=None, theory=None, charge=Non
                     if keepmofiles == True:
                         shutil.copyfile(theory.filename+'.gbw', 'surface_mofiles/'+str(theory.filename)+'_'+pointlabel+'.gbw')
                     #theory.cleanup()
-                    surfacedictionary[(RCvalue1,RCvalue2)] = energy
+                    surfacedictionary[(RCvalue1,RCvalue2)] = float(energy)
                     #Writing dictionary to file
                     #write_surfacedict_to_file(surfacedictionary,resultfile, dimension=2)
                     #print("")
@@ -978,7 +977,7 @@ def calc_surface_fromXYZ(xyzdir=None, multixyzfile=None, theory=None, charge=Non
                         shutil.copyfile(theory.filename+'.out', 'surface_outfiles/'+str(theory.filename)+'_'+pointlabel+'.out')
                     if keepmofiles == True:
                         shutil.copyfile(theory.filename+'.gbw', 'surface_mofiles/'+str(theory.filename)+'_'+pointlabel+'.gbw')
-                    surfacedictionary[(RCvalue1)] = energy
+                    surfacedictionary[(RCvalue1)] = float(energy)
                     #Writing dictionary to file
                     #write_surfacedict_to_file(surfacedictionary,resultfile, dimension=1)
                     print("")
@@ -1123,3 +1122,4 @@ def write_surfacedict_to_file(surfacedict,file="surface_results.txt",dimension=N
                 y=d[0][1]
                 e=d[1]
                 f.write(str(x)+" "+str(y)+" "+str(e)+'\n')
+

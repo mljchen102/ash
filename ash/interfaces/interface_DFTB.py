@@ -336,12 +336,13 @@ def write_DFTB_input(hamiltonian,xtbmethod,xyzfilename, elems,coords,charge,mult
         #PBC: k-points
         if periodic:
             inputlines.append("  KPointsAndWeights = SupercellFolding {"+"\n")
-            inputlines.append("    1 0 0"+"\n")
-            inputlines.append("    0 1 0"+"\n")
-            inputlines.append("    0 0 1"+"\n")
-            inputlines.append("    0 0 0"+"\n")
+            inputlines.append("KPointsAndWeights = SupercellFolding {"+"\n")
+            inputlines.append(f"{kpoint_value} 0 0"+"\n")
+            inputlines.append(f"0 {kpoint_value} 0"+"\n")
+            inputlines.append(f"0 0 {kpoint_value}"+"\n")
+            inputlines.append("0 0 0"+"\n")
 
-            inputlines.append("  }"+"\n")
+            inputlines.append("}"+"\n")
         #inputlines.append('}\n')
 
     # Close Hamiltonian

@@ -8,7 +8,7 @@ from ash.modules.module_QMMM import QMMMTheory
 from ash.modules.module_theory import MicroIterativeclass
 #from ash.modules.module_oniom import ONIOMTheory
 from ash.interfaces.interface_OpenMM import OpenMMTheory
-from ash.modules.module_coords import print_coords_for_atoms,print_internal_coordinate_table,write_XYZ_for_atoms,write_xyzfile,write_coords_all,fract_coords_to_cart,cart_coords_to_fract, cell_volume
+from ash.modules.module_coords import print_coords_for_atoms,print_internal_coordinate_table,write_XYZ_for_atoms,write_xyzfile,write_coords_all, cell_volume
 from ash.functions.functions_general import ashexit, blankline,BC,print_time_rel,print_line_with_mainheader,print_line_with_subheader1,print_if_level, pygrep2
 from ash.modules.module_coords import check_charge_mult, fullindex_to_actindex, cell_vectors_to_params, write_CIF_file, write_XSF_file, write_POSCAR_file
 from ash.modules.module_freq import write_hessian,calc_hessian_xtb, approximate_full_Hessian_from_smaller, read_hessian

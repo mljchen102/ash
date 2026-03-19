@@ -6,7 +6,7 @@ import ash.constants
 from ash.functions.functions_general import ashexit, blankline,print_time_rel_and_tot,BC,listdiff,print_time_rel
 from ash.modules.module_coords import write_xyzfile
 from ash.modules.module_coords import check_charge_mult, cell_vectors_to_params, cell_params_to_vectors, cart_coords_to_fract, fract_coords_to_cart, cell_volume
-from ash.modules.module_coords import print_coords_for_atoms
+from ash.modules.module_coords import print_coords_for_atoms,write_CIF_file,write_XSF_file, write_POSCAR_file
 from ash.interfaces.interface_geometric_new import geomeTRICOptimizer
 from ash.modules.module_theory import NumGradclass
 #import ash
@@ -568,7 +568,7 @@ def Periodic_optimizer_cart(fragment=None, theory=None, rate=2.0,
                                 scaling_rate_cell=1.0, maxiter=50, 
                                 step_algo="bfgs",
                                 max_step=0.25, momentum=0.5, 
-                                printlevel=2, conv_criteria=None):
+                                printlevel=2, conv_criteria=None, PBC_format_option="CIF"):
     """
     Wrapper function around Periodic_optimizer_cart_class
     """
@@ -580,7 +580,7 @@ def Periodic_optimizer_cart(fragment=None, theory=None, rate=2.0,
         ashexit()
     optimizer=Periodic_optimizer_cart_class(fragment=fragment, theory=theory, rate=rate, scaling_rate_cell=scaling_rate_cell, 
                                             maxiter=maxiter, step_algo=step_algo,
-                                            max_step=max_step, momentum=momentum, 
+                                            max_step=max_step, momentum=momentum, PBC_format_option=PBC_format_option,
                                             printlevel=printlevel, conv_criteria=conv_criteria)
 
     result = optimizer.run()
@@ -593,7 +593,8 @@ def Periodic_optimizer_cart(fragment=None, theory=None, rate=2.0,
 class Periodic_optimizer_cart_class:
 
     def __init__(self,fragment=None, theory=None, rate=2.0, scaling_rate_cell=1.0, maxiter=50, step_algo="bfgs",
-                                max_step=0.25, momentum=0.5, printlevel=2, conv_criteria=None):
+                                max_step=0.25, momentum=0.5, printlevel=2, conv_criteria=None,
+                                PBC_format_option="CIF"):
 
         self.fragment = fragment
         self.theory = theory
@@ -604,6 +605,7 @@ class Periodic_optimizer_cart_class:
         self.max_step=max_step
         self.momentum=momentum
         self.printlevel=printlevel
+        self.PBC_format_option=PBC_format_option
 
         self.ang2bohr=1.88972612546
 
@@ -903,6 +905,20 @@ class Periodic_optimizer_cart_class:
                 print(f"Final cell volume (Å):{cell_volume(self.theory.periodic_cell_vectors)}")
                 print(f"Final cell parameters: ({cell_vectors_to_params(self.theory.periodic_cell_vectors)})")
                 print(f"Final energy: {energy} Eh")
+
+                print("PBC_format_option:", self.PBC_format_option)
+                if self.PBC_format_option.upper() =="CIF":
+                    convert_to_pbcfile=write_CIF_file
+                    file_ext='cif'
+                elif self.PBC_format_option.upper() =="XSF":
+                    convert_to_pbcfile=write_XSF_file
+                    file_ext='xsf'
+                elif self.PBC_format_option.upper() == "POSCAR":
+                    convert_to_pbcfile=write_POSCAR_file
+                    file_ext='POSCAR'
+                convert_to_pbcfile(self.fragment.coords,self.fragment.elems,cellvectors=self.theory.periodic_cell_vectors,
+                                             filename=f"Fragment-optimized.{file_ext}")
+
                 break
 
             #########################################
