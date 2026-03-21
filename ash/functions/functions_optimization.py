@@ -568,7 +568,8 @@ def Periodic_optimizer_cart(fragment=None, theory=None, rate=2.0,
                                 scaling_rate_cell=1.0, maxiter=50, 
                                 step_algo="bfgs",
                                 max_step=0.25, momentum=0.5, 
-                                printlevel=2, conv_criteria=None, PBC_format_option="CIF"):
+                                printlevel=2, conv_criteria=None, PBC_format_option="CIF",
+                                constraints=None, frozen_atoms=None):
     """
     Wrapper function around Periodic_optimizer_cart_class
     """
@@ -581,7 +582,7 @@ def Periodic_optimizer_cart(fragment=None, theory=None, rate=2.0,
     optimizer=Periodic_optimizer_cart_class(fragment=fragment, theory=theory, rate=rate, scaling_rate_cell=scaling_rate_cell, 
                                             maxiter=maxiter, step_algo=step_algo,
                                             max_step=max_step, momentum=momentum, PBC_format_option=PBC_format_option,
-                                            printlevel=printlevel, conv_criteria=conv_criteria)
+                                            printlevel=printlevel, conv_criteria=conv_criteria, constraints=constraints, frozen_atoms=frozen_atoms)
 
     result = optimizer.run()
     if printlevel >= 1:
@@ -594,7 +595,7 @@ class Periodic_optimizer_cart_class:
 
     def __init__(self,fragment=None, theory=None, rate=2.0, scaling_rate_cell=1.0, maxiter=50, step_algo="bfgs",
                                 max_step=0.25, momentum=0.5, printlevel=2, conv_criteria=None,
-                                PBC_format_option="CIF"):
+                                PBC_format_option="CIF", constraints=None, frozen_atoms=None):
 
         self.fragment = fragment
         self.theory = theory
@@ -606,6 +607,14 @@ class Periodic_optimizer_cart_class:
         self.momentum=momentum
         self.printlevel=printlevel
         self.PBC_format_option=PBC_format_option
+        # Constraints
+        self.constraints = constraints if constraints is not None else []
+        # Default force constant for soft restraints (eV/Å² or Eh/Å² — match your units)
+        self.default_k = 10.0
+        # Frozen atoms
+        self.frozen_atoms = frozen_atoms if frozen_atoms is not None else []
+        if self.frozen_atoms:
+                print(f"Frozen atoms: {self.frozen_atoms}")
 
         self.ang2bohr=1.88972612546
 
@@ -615,6 +624,10 @@ class Periodic_optimizer_cart_class:
         else:
             self.conv_criteria=conv_criteria
         print("Convergence criteria:", self.conv_criteria)
+        print("Constraints:", self.constraints)
+        for con in self.constraints:
+            print("con:",con)
+
         # Max step in bohrs (default = 0.1 Å = 0.188 bohrs)
         self.max_step_au = max_step*self.ang2bohr
 
@@ -644,6 +657,258 @@ class Periodic_optimizer_cart_class:
         print("H_ref:",self. H_ref)
         self.H_ref_inv = np.linalg.inv(self.H_ref)
         print("H_ref_inv:", self.H_ref_inv)
+
+    def apply_frozen_atoms(self, gradient):
+        """
+        Zero out gradient components for frozen atoms.
+        Accepts either a list of atom indices to freeze, or a dict with
+        per-atom frozen Cartesian components, e.g.:
+            frozen_atoms=[0, 1, 5]                        # freeze all xyz
+            frozen_atoms={0: 'xyz', 3: 'xz', 7: 'y'}     # freeze specific components
+        """
+        if not self.frozen_atoms:
+            return gradient
+
+        grad_out = gradient.copy()
+
+        if isinstance(self.frozen_atoms, (list, tuple)):
+            for idx in self.frozen_atoms:
+                grad_out[idx] = 0.0
+
+        elif isinstance(self.frozen_atoms, dict):
+            component_map = {'x': 0, 'y': 1, 'z': 2}
+            for idx, components in self.frozen_atoms.items():
+                for c in components.lower():
+                    if c in component_map:
+                        grad_out[idx, component_map[c]] = 0.0
+
+        return grad_out
+
+    def apply_bond_constraints(self, coords, gradient, energy):
+        """
+        Apply bond-length constraints to gradient (and energy for soft mode).
+
+        coords:   (N, 3) physical atomic coordinates in Ångström
+        gradient: (N+4, 3) supergradient (atoms + origin + 3 lattice rows)
+        energy:   float, current energy
+
+        Returns modified (energy, gradient).
+        """
+        if not self.constraints:
+            return energy, gradient
+
+        # Work on a copy so we don't mutate in-place unexpectedly
+        grad_out = gradient.copy()
+        energy_out = energy
+
+        for c in self.constraints:
+            if c.get('type') != 'bond':
+                continue
+            print("Applying bond constraint")
+            i, j   = c['atoms']
+            r0     = c['target']           # target bond length in Å
+            method = c.get('method', 'hard')
+            k      = c.get('k', self.default_k)   # only used for soft
+
+            # Current bond vector and length
+            rij = coords[i] - coords[j]          # (3,)
+            d   = np.linalg.norm(rij)
+            if d < 1e-8:
+                print(f"Warning: atoms {i} and {j} are on top of each other. Skipping constraint.")
+                continue
+            e_ij = rij / d                        # unit vector i→j
+
+            delta = d - r0                        # signed deviation in Å
+
+            if method == 'soft':
+                # Harmonic restraint: V = 0.5 * k * delta^2
+                # dV/dr_i = k * delta * e_ij
+                # dV/dr_j = -k * delta * e_ij
+                energy_out += 0.5 * k * delta**2
+                grad_out[i] += k * delta * e_ij
+                grad_out[j] -= k * delta * e_ij
+                if self.printlevel >= 2:
+                    print(f"  Soft constraint ({i},{j}): d={d:.4f} Å  target={r0:.4f} Å  "
+                        f"delta={delta:.4f} Å  penalty={0.5*k*delta**2:.6f}")
+
+            elif method == 'hard':
+                # SHAKE-style: project out the component of the gradient
+                # along the bond direction for both atoms.
+                # g_parallel_i =  (g_i · e_ij) * e_ij
+                # g_parallel_j = -(g_j · e_ij) * e_ij  (opposite sign convention)
+                # We zero those components to enforce the constraint.
+                g_i_par = np.dot(grad_out[i], e_ij) * e_ij
+                g_j_par = np.dot(grad_out[j], e_ij) * e_ij
+                grad_out[i] -= g_i_par
+                grad_out[j] -= g_j_par
+                if self.printlevel >= 2:
+                    print(f"  Hard constraint ({i},{j}): d={d:.4f} Å  target={r0:.4f} Å  "
+                        f"delta={delta:.4f} Å  |proj_i|={np.linalg.norm(g_i_par):.6f}")
+            else:
+                print(f"Unknown constraint method '{method}'. Use 'hard' or 'soft'.")
+
+        return energy_out, grad_out
+
+    def apply_angle_constraints(self, coords, gradient, energy):
+        """
+        Angle constraints for triplets (i, j, k).
+        Target angle in degrees. Gradient via chain rule through arccos.
+        """
+        if not self.constraints:
+            return energy, gradient
+
+        grad_out = gradient.copy()
+        energy_out = energy
+
+        for c in self.constraints:
+            if c.get('type') != 'angle':
+                continue
+            print("Applying angle constraint")
+            i, j, k = c['atoms']         # centre atom is j
+            theta0   = np.deg2rad(c['target'])
+            method   = c.get('method', 'hard')
+            kf       = c.get('k', self.default_k)
+
+            # Bond vectors pointing away from centre j
+            u = coords[i] - coords[j]
+            v = coords[k] - coords[j]
+            lu = np.linalg.norm(u)
+            lv = np.linalg.norm(v)
+
+            if lu < 1e-8 or lv < 1e-8:
+                print(f"Warning: degenerate angle {i}-{j}-{k}. Skipping.")
+                continue
+
+            u_hat = u / lu
+            v_hat = v / lv
+            cos_t = np.clip(np.dot(u_hat, v_hat), -1.0, 1.0)
+            theta  = np.arccos(cos_t)
+            sin_t  = np.sqrt(max(1.0 - cos_t**2, 1e-10))  # avoid /0 at 0° or 180°
+
+            # dθ/dr_i = (u_hat × (u_hat × v_hat)) / (lu * sin_t)
+            # but the simpler form via arccos derivative:
+            # dcos/dr_i = (v_hat - cos_t * u_hat) / lu
+            # dθ/dr_i  = -1/sin_t * dcos/dr_i
+            dc_dri =  (v_hat - cos_t * u_hat) / lu
+            dc_drk =  (u_hat - cos_t * v_hat) / lv
+            dc_drj = -(dc_dri + dc_drk)
+
+            dt_dri = -dc_dri / sin_t
+            dt_drk = -dc_drk / sin_t
+            dt_drj = -dc_drj / sin_t
+
+            delta = theta - theta0   # deviation in radians
+
+            if method == 'soft':
+                energy_out    += 0.5 * kf * delta**2
+                grad_out[i]   += kf * delta * dt_dri
+                grad_out[j]   += kf * delta * dt_drj
+                grad_out[k]   += kf * delta * dt_drk
+                if self.printlevel >= 2:
+                    print(f"  Soft angle ({i},{j},{k}): θ={np.rad2deg(theta):.3f}°  "
+                        f"target={np.rad2deg(theta0):.3f}°  delta={np.rad2deg(delta):.3f}°  "
+                        f"penalty={0.5*kf*delta**2:.6f}")
+
+            elif method == 'hard':
+                # Project out the gradient component along dθ/dr for each atom
+                for idx, dt_dr in [(i, dt_dri), (j, dt_drj), (k, dt_drk)]:
+                    proj = np.dot(grad_out[idx], dt_dr)
+                    if np.linalg.norm(dt_dr) > 1e-10:
+                        n_hat = dt_dr / np.linalg.norm(dt_dr)
+                        grad_out[idx] -= np.dot(grad_out[idx], n_hat) * n_hat
+                if self.printlevel >= 2:
+                    print(f"  Hard angle ({i},{j},{k}): θ={np.rad2deg(theta):.3f}°  "
+                        f"target={np.rad2deg(theta0):.3f}°  delta={np.rad2deg(delta):.3f}°")
+
+        return energy_out, grad_out
+
+    def apply_torsion_constraints(self, coords, gradient, energy):
+        """
+        Torsion (dihedral) constraints for quartets (i, j, k, l).
+        Target angle in degrees, range (-180, 180].
+        Uses the Blondel & Karplus (1996) analytical gradient.
+        """
+        if not self.constraints:
+            return energy, gradient
+
+        grad_out = gradient.copy()
+        energy_out = energy
+
+        for c in self.constraints:
+            if c.get('type') != 'torsion':
+                continue
+            print("Applying torsion constraint")
+            i, j, k, l  = c['atoms']
+            phi0         = np.deg2rad(c['target'])
+            method       = c.get('method', 'hard')
+            kf           = c.get('k', self.default_k)
+
+            # Bond vectors along the chain
+            b1 = coords[j] - coords[i]
+            b2 = coords[k] - coords[j]
+            b3 = coords[l] - coords[k]
+
+            # Normal vectors to the two planes
+            n1 = np.cross(b1, b2)
+            n2 = np.cross(b2, b3)
+            ln1 = np.linalg.norm(n1)
+            ln2 = np.linalg.norm(n2)
+            lb2 = np.linalg.norm(b2)
+
+            if ln1 < 1e-8 or ln2 < 1e-8 or lb2 < 1e-8:
+                print(f"Warning: degenerate torsion {i}-{j}-{k}-{l}. Skipping.")
+                continue
+
+            # Torsion angle via atan2 (gives correct sign and full -π..π range)
+            m1    = np.cross(n1, b2 / lb2)
+            cos_p = np.dot(n1, n2) / (ln1 * ln2)
+            sin_p = np.dot(m1, n2) / (ln1 * ln2)
+            phi   = np.arctan2(sin_p, cos_p)
+
+            # Deviation — wrap to (-π, π]
+            delta = phi - phi0
+            delta = (delta + np.pi) % (2 * np.pi) - np.pi
+
+            # Blondel & Karplus gradient
+            # ∂φ/∂r_i = -|b2|/|n1|² * n1
+            # ∂φ/∂r_l =  |b2|/|n2|² * n2
+            # ∂φ/∂r_j and ∂φ/∂r_k from chain rule (see B&K eq. 27)
+            lb2_sq = lb2**2
+            dphi_dri = -(lb2 / ln1**2) * n1
+            dphi_drl =  (lb2 / ln2**2) * n2
+            dphi_drj = ( (np.dot(b1, b2) / lb2_sq - 1.0) * (lb2 / ln1**2) * n1
+                        - (np.dot(b3, b2) / lb2_sq)       * (lb2 / ln2**2) * n2 )
+            dphi_drk = ( (np.dot(b3, b2) / lb2_sq - 1.0) * (lb2 / ln2**2) * n2 * (-1)  # sign: b2 direction
+                        - (np.dot(b1, b2) / lb2_sq)       * (lb2 / ln1**2) * n1 * (-1) )
+            # Compact form consistent with B&K sign convention:
+            dphi_drj = ( -(1.0 - np.dot(b1,b2)/lb2_sq) * (lb2/ln1**2) * n1
+                        +(     np.dot(b3,b2)/lb2_sq)   * (lb2/ln2**2) * n2 )
+            dphi_drk = (  (1.0 - np.dot(b3,b2)/lb2_sq) * (lb2/ln2**2) * n2
+                        -(     np.dot(b1,b2)/lb2_sq)   * (lb2/ln1**2) * n1 )
+
+            if method == 'soft':
+                energy_out  += 0.5 * kf * delta**2
+                grad_out[i] += kf * delta * dphi_dri
+                grad_out[j] += kf * delta * dphi_drj
+                grad_out[k] += kf * delta * dphi_drk
+                grad_out[l] += kf * delta * dphi_drl
+                if self.printlevel >= 2:
+                    print(f"  Soft torsion ({i},{j},{k},{l}): φ={np.rad2deg(phi):.3f}°  "
+                        f"target={np.rad2deg(phi0):.3f}°  delta={np.rad2deg(delta):.3f}°  "
+                        f"penalty={0.5*kf*delta**2:.6f}")
+
+            elif method == 'hard':
+                for idx, dphi_dr in [(i, dphi_dri), (j, dphi_drj),
+                                    (k, dphi_drk), (l, dphi_drl)]:
+                    norm = np.linalg.norm(dphi_dr)
+                    if norm > 1e-10:
+                        n_hat = dphi_dr / norm
+                        grad_out[idx] -= np.dot(grad_out[idx], n_hat) * n_hat
+                if self.printlevel >= 2:
+                    print(f"  Hard torsion ({i},{j},{k},{l}): φ={np.rad2deg(phi):.3f}°  "
+                        f"target={np.rad2deg(phi0):.3f}°  delta={np.rad2deg(delta):.3f}°")
+
+        return energy_out, grad_out
 
     def align_to_standard_orientation(self, fragment_coords, cell_vectors):
         """
@@ -882,6 +1147,16 @@ class Periodic_optimizer_cart_class:
             #########################################
             energy, supergradient = self.calculate_supergradient(currcoords)
 
+            # 1b. Apply all constraints
+            if self.constraints:
+                print("Applying constraints...")
+                energy, supergradient = self.apply_bond_constraints(R_phys, supergradient, energy)
+                energy, supergradient = self.apply_angle_constraints(R_phys, supergradient, energy)
+                energy, supergradient = self.apply_torsion_constraints(R_phys, supergradient, energy)
+            # 1c. Apply frozen atoms
+            if self.frozen_atoms:
+                supergradient = self.apply_frozen_atoms(supergradient)
+
             #########################################
             # 2. Check convergence of cell gradient
             #########################################
@@ -918,7 +1193,6 @@ class Periodic_optimizer_cart_class:
                     file_ext='POSCAR'
                 convert_to_pbcfile(self.fragment.coords,self.fragment.elems,cellvectors=self.theory.periodic_cell_vectors,
                                              filename=f"Fragment-optimized.{file_ext}")
-
                 break
 
             #########################################

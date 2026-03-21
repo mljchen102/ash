@@ -5,7 +5,7 @@ import time
 import numpy as np
 import pathlib
 from ash.functions.functions_general import ashexit, BC, print_time_rel,print_line_with_mainheader, writestringtofile
-from ash.modules.module_coords import nucchargelist
+from ash.modules.module_coords import nucchargelist, cell_vectors_to_params, cell_params_to_vectors
 import ash.settings_ash
 from ash.functions.functions_parallel import check_OpenMPI
 
@@ -13,9 +13,11 @@ from ash.functions.functions_parallel import check_OpenMPI
 
 class TurbomoleTheory:
     def __init__(self, TURBODIR=None, turbomoledir=None, filename='XXX', printlevel=2, label="Turbomole", uff=False,
-                numcores=1, parallelization='SMP', functional=None, gridsize="m4", scfconv=7, symmetry="c1", rij=True,
+                numcores=1, parallelization='SMP', functional=None, dispersion=None, gridsize="m4", scfconv=7, symmetry="c1", rij=True,
                 basis=None, jbasis=None, scfiterlimit=50, maxcor=500, ricore=500, controlfile=None,skip_control_gen=False,
-                mp2=False, pointcharge_type=None, pc_gaussians=None):
+                mp2=False, pointcharge_type=None, pc_gaussians=None,
+                periodic=False, periodic_cell_vectors=None, PBC_dimension=3,
+                periodic_cell_dimensions=None, kpoint_values=[1,1,1]):
 
         self.theorynamelabel="Turbomole"
         self.label=label
@@ -26,6 +28,7 @@ class TurbomoleTheory:
         #
         self.scfiterlimit=scfiterlimit
         self.functional=functional
+        self.dispersion=dispersion
         self.symmetry=symmetry
         self.scfconv=scfconv
         self.gridsize=gridsize
@@ -64,11 +67,35 @@ class TurbomoleTheory:
             print("Initializing Turbomole QM")
             # QM controfile or Basis set check
             if controlfile is None:
-                print("No controlfile provided. This requires basis to be provided")
+                print("No controlfile provided. This requires basis keyword to be provided")
                 if basis is None:
                     print(BC.WARNING, f"No basis set provided to {self.theorynamelabel}Theory. Exiting...", BC.END)
                     ashexit()
         self.basis=basis
+
+        # PBC
+        self.periodic=periodic
+        self.PBC_dimension=PBC_dimension # PBC dimension 1:1D, 2:2D, 3:3D
+        self.periodic_cell_vectors=None # initially
+        self.kpoint_values=kpoint_values # k-point kpoint_values: [1,1,1] for gamma point in all directions
+        self.cellderiv=False # Boolean for calculating cell derivate or not. default False
+        if self.periodic:
+            print("PBC enabled")
+            self.cellderiv=True
+            if periodic_cell_vectors is None and periodic_cell_dimensions is None:
+                print("Error: for periodic calculations, you must specify either periodic_cell_vectors or  periodic_cell_dimensions")
+                ashexit()
+                # Convert to cell vectors
+                self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+            elif periodic_cell_vectors is not None:
+                self.periodic_cell_vectors = periodic_cell_vectors
+                self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+            elif periodic_cell_dimensions is not None:
+                self.periodic_cell_dimensions = periodic_cell_dimensions
+                self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+
+            print("Cell vectors:", self.periodic_cell_vectors)
+            print("Cell dimensions:", self.periodic_cell_dimensions)
 
         # User controlfile
         if self.controlfile is not None:
@@ -101,7 +128,14 @@ class TurbomoleTheory:
         elif functional is not None:
             self.dft=True
             print("Functional provided. Choosing Turbomole executables to be ridft and rdgrad")
-            if rij is True:
+            print("Dispersion correction:", self.dispersion)
+            if self.periodic:
+                self.turbo_scf_exe="riper"
+                self.turbo_exe_grad="riper"
+                self.filename_scf="riper"
+                self.filename_grad="riper"
+
+            elif rij is True:
                 self.turbo_scf_exe="ridft"
                 self.turbo_exe_grad="rdgrad"
                 self.filename_scf="ridft"
@@ -118,7 +152,11 @@ class TurbomoleTheory:
                 ashexit()
             else:
                 self.jbasis=jbasis
-        print("self.turbo_scf_exe:", self.turbo_scf_exe)
+        # else
+        else:
+            print("Error: No controlfile provided, not MP2, not DFT (no functional provided). Unclear what type of calculation this is. Exiting.")
+            ashexit()
+
         # Checking OpenMPI
         if numcores != 1:
             print(f"Parallel job requested with numcores: {numcores} . Make sure that the correct OpenMPI version is available in your environment")
@@ -162,15 +200,28 @@ class TurbomoleTheory:
         # Counter for how often TurbomoleTheory.run is called
         self.runcalls=0
 
-
     # Set numcores method
     def set_numcores(self,numcores):
         self.numcores=numcores
+
     def cleanup(self):
         files=['coord','control','energy','gradient', 'auxbasis', 'basis', 'mos', 'ridft.out', 'rdgrad.out', 'ricc2.out', 'statistics']
         for f in files:
             if os.path.exists(f):
                 os
+    # Update cell using either periodic_cell_vectors or periodic_cell_dimensions
+    def update_cell(self,periodic_cell_vectors=None, periodic_cell_dimensions=None):
+        print("Updating cell vectors")
+        if periodic_cell_vectors is not None:
+            self.periodic_cell_vectors = periodic_cell_vectors
+            self.periodic_cell_dimensions = cell_vectors_to_params(periodic_cell_vectors)
+        elif periodic_cell_dimensions is not None:
+            self.periodic_cell_dimensions=periodic_cell_dimensions
+            self.periodic_cell_vectors = cell_params_to_vectors(periodic_cell_dimensions)
+
+    def get_cell_gradient(self):
+        return self.cell_gradient
+
     def setup_mpi(self,numcores):
         print("Setting up MPI for Turbomole")
         print("TURBODIR:", self.TURBODIR)
@@ -277,8 +328,10 @@ class TurbomoleTheory:
 
             print("Creating controlfile")
             numelectrons = int(nucchargelist(qm_elems) - charge)
-            create_control_file(runcalls=self.runcalls, functional=self.functional, gridsize=self.gridsize, scfconv=self.scfconv, dft=self.dft,
-                            symmetry="c1", basis=self.basis, jbasis=self.jbasis, rij=self.rij, mp2=self.mp2,
+            create_control_file(runcalls=self.runcalls, functional=self.functional, dispersion=self.dispersion,gridsize=self.gridsize, scfconv=self.scfconv, dft=self.dft,
+                            symmetry="c1", basis=self.basis, jbasis=self.jbasis, rij=self.rij, mp2=self.mp2, 
+                            periodic=self.periodic, PBC_dimension=self.PBC_dimension,cell_vectors=self.periodic_cell_vectors,kpoint_values=self.kpoint_values,
+                            cellderiv=self.cellderiv,
                             scfiterlimit=self.scfiterlimit, maxcor=self.maxcor, ricore=self.ricore, charge=charge, mult=mult,
                             pcharges=MMcharges, pccoords=current_MM_coords, pointcharge_type=self.pointcharge_type, pc_gaussians=self.pc_gaussians,
                             numelectrons=numelectrons)
@@ -316,7 +369,7 @@ class TurbomoleTheory:
             self.energy = grab_energy_from_energyfile(file="uffenergy")
             print("UFF Energy:", self.energy)
             # Gradient
-            self.gradient = grab_uffgradient(len(current_coords), file="uffgradient")
+            self.gradient = grab_gradient(len(current_coords), file="uffgradient")
             print("self.gradient:", self.gradient)
 
         else:
@@ -339,12 +392,22 @@ class TurbomoleTheory:
 
         # GRADIENT
         if Grad is True and self.uff is False:
-            print("Running Turbomole-gradient executable")
-            print("self.turbo_exe_grad:", self.turbo_exe_grad)
-            print("self.filename_grad:", self.filename_grad)
-            self.run_turbo(self.filename_grad, exe=self.turbo_exe_grad, parallelization=self.parallelization,
-                  numcores=self.numcores)
-            self.gradient = grab_gradient(len(current_coords))
+
+            # Run gradient calc unless riper
+            if self.periodic:
+                print("Turbomole RIPER has already computed gradient")
+                # Now grab gradient
+                self.gradient = grab_gradient(len(current_coords))
+                # Now grab cell gradient
+                self.cell_gradient = grab_cellgrad(file="control")
+            else:
+                print("Running Turbomole-gradient executable")
+                print("self.turbo_exe_grad:", self.turbo_exe_grad)
+                print("self.filename_grad:", self.filename_grad)
+                self.run_turbo(self.filename_grad, exe=self.turbo_exe_grad, parallelization=self.parallelization,
+                    numcores=self.numcores)
+                # Now grab gradient
+                self.gradient = grab_gradient(len(current_coords))
 
             if PC:
                 self.pcgradient = grab_pcgradient(len(MMcharges))
@@ -404,8 +467,9 @@ def create_coord_file(elems,coords, write_unit='BOHR', periodic_info=None, filen
             coordfile.write(f"{periodic_info[0]} {periodic_info[1]} {periodic_info[2]} {periodic_info[3]} {periodic_info[4]} {periodic_info[5]}\n")
         coordfile.write("$end\n")
 
-def create_control_file(runcalls=None, functional="lh12ct-ssifpw92", gridsize="m4", scfconv="7", symmetry="c1", rij=True, dft=True, mp2=False,
-                        basis="def2-SVP", jbasis="def2-SVP", scfiterlimit=30, maxcor=500, ricore=500, charge=None, mult=None,
+def create_control_file(runcalls=None, functional="lh12ct-ssifpw92", dispersion=None, gridsize="m4", scfconv="7", symmetry="c1", rij=True, dft=True, mp2=False,
+                        basis="def2-SVP", jbasis="def2-SVP", scfiterlimit=30, maxcor=500, ricore=500, charge=None, mult=None, 
+                        periodic=False, PBC_dimension=3, cell_vectors=None, kpoint_values=[1,1,1], cellderiv=False,
                         pcharges=None, pccoords=None, pointcharge_type=None, pc_gaussians=None, numelectrons=None):
     if pccoords is not None:
         pccoords=pccoords*1.88972612546
@@ -468,12 +532,34 @@ $energy    file=energy
 $grad    file=gradient
 $scfconv   {scfconv}
 """
+    if periodic is True:
+        controlstring += f"""$periodic {PBC_dimension}
+$lattice angs
+  {cell_vectors[0,0]} {cell_vectors[0,1]} {cell_vectors[0,2]}
+  {cell_vectors[1,0]} {cell_vectors[1,1]} {cell_vectors[1,2]}
+  {cell_vectors[2,0]} {cell_vectors[2,1]} {cell_vectors[2,2]}
+$kpoints
+  nkpoints {kpoint_values[0]} {kpoint_values[1]} {kpoint_values[2]}
+\n"""
+        if cellderiv:
+            controlstring += f"$optcell \n"
 
     if dft is True:
         controlstring += f"""$dft
     functional   {functional}
-    gridsize   {gridsize}"""
-
+    gridsize   {gridsize}\n"""
+    #Dispersion
+    if dispersion is not None:
+        if 'D3' in dispersion.upper():
+            if '0' in dispersion.upper() or 'ZERO' in dispersion.upper():
+                controlstring += "$disp3\n"
+            else:
+                controlstring += "$disp3 -bj\n"            
+        elif 'D2' in dispersion.upper():
+            controlstring += "$disp\n"
+        elif 'D4' in dispersion.upper():
+            controlstring += "$disp4\n"
+        
     if mp2 is True:
         controlstring += f"""\n$denconv .1d-6
 $ricc2
@@ -527,12 +613,14 @@ def grab_energy_from_energyfile(file="energy", column=1):
                 energy = float(line.split()[column])
     return energy
 
-def grab_gradient(numatoms,file="gradient"):
+# Fails if multiple SCF cycles are present in file (happens for riper)
+def grab_gradient_old(numatoms,file="gradient"):
     gradient = np.zeros((numatoms,3))
     with open(file, 'r') as gradfile:
         gradlines = gradfile.readlines()
     counter=0
     for i,line in enumerate(gradlines):
+        print("line:", line)
         if '$end' in line:
             break
         if i > numatoms+1:
@@ -540,7 +628,7 @@ def grab_gradient(numatoms,file="gradient"):
             counter+=1
     return gradient
 
-def grab_uffgradient(numatoms,file="uffgradient"):
+def grab_gradient(numatoms,file="gradient"):
     gradient = np.zeros((numatoms,3))
     with open(file, 'r') as gradfile:
         gradlines = gradfile.readlines()
@@ -585,3 +673,27 @@ def turbomole_grabhessian(numatoms,hessfile="hessian"):
                     hessian[i,n] = float(v)
                 i = int(line.split()[0])-1
     return hessian
+
+# Usually in controlfile
+def grab_cellgrad(file="control"):
+    cellgrad=np.zeros((3,3))
+    grab=False
+    lines=[]
+    with open(file) as f:
+        for line in f:
+            if grab is True and '$end' in line:
+                grab=False
+            if grab:
+                lines.append(line)
+            if '$gradlatt' in line:
+                grab=True
+    cellgrad[0,0] = float(lines[-3].replace('D','E').split()[0])
+    cellgrad[0,1] = float(lines[-3].replace('D','E').split()[1])
+    cellgrad[0,2] = float(lines[-3].replace('D','E').split()[2])
+    cellgrad[1,0] = float(lines[-2].replace('D','E').split()[0])
+    cellgrad[1,1] = float(lines[-2].replace('D','E').split()[1])
+    cellgrad[1,2] = float(lines[-2].replace('D','E').split()[2])
+    cellgrad[2,0] = float(lines[-1].replace('D','E').split()[0])
+    cellgrad[2,1] = float(lines[-1].replace('D','E').split()[1])
+    cellgrad[2,2] = float(lines[-1].replace('D','E').split()[2])
+    return cellgrad

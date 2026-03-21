@@ -16,7 +16,7 @@ class DFTBTheory():
                  numcores=1, slaterkoster_dict=None, maxmom_dict=None, hubbard_derivs_dict=None, Gauss_blur_width=0.0,
                  SCC=True, ThirdOrderFull=False, ThirdOrder=False, hcorrection_zeta=None,
                  MaxSCCIterations=300, periodic=False, periodic_cell_vectors=None,
-                 periodic_cell_dimensions=None, kpoint_value=1):
+                 periodic_cell_dimensions=None, kpoint_values=[1,1,1]):
 
         self.theorynamelabel="DFTB"
         self.label=label
@@ -56,7 +56,7 @@ class DFTBTheory():
         # PBC
         self.periodic=periodic
         self.periodic_cell_vectors=None # initially
-        self.kpoint_value=kpoint_value # k-point value: 1 for gamma point
+        self.kpoint_values=kpoint_values # k-point values: [1,1,1] for gamma point in all directions
         if self.periodic:
             print("PBC enabled")
             if periodic_cell_vectors is None and periodic_cell_dimensions is None:
@@ -179,7 +179,7 @@ class DFTBTheory():
                          Gauss_blur_width=self.Gauss_blur_width, SCC=self.SCC, ThirdOrderFull=self.ThirdOrderFull, ThirdOrder=self.ThirdOrder,
                          hubbard_derivs_dict=self.hubbard_derivs_dict, hcorrection_zeta=self.hcorrection_zeta,
                          MaxSCCIterations=self.MaxSCCIterations, periodic=self.periodic,
-                         periodic_cell_vectors=self.periodic_cell_vectors, kpoint_value=self.kpoint_value)
+                         periodic_cell_vectors=self.periodic_cell_vectors, kpoint_values=self.kpoint_values)
 
         print_time_rel(module_init_time, modulename=f'DFTB prep-run', moduleindex=3)
         # Run DFTB
@@ -221,7 +221,7 @@ class DFTBTheory():
 def write_DFTB_input(hamiltonian,xtbmethod,xyzfilename, elems,coords,charge,mult, PC=False, MMcharges=None, MMcoords=None, Grad=False, SCC=True,
                      slaterkoster_dict=None, maxmom_dict=None, Gauss_blur_width=0.0, ThirdOrderFull=False, ThirdOrder=False,
                      hubbard_derivs_dict=None, hcorrection_zeta=None, MaxSCCIterations=300,
-                     periodic=False, periodic_cell_vectors=None, kpoint_value=1):
+                     periodic=False, periodic_cell_vectors=None, kpoint_values=[1,1,1]):
 
     # Open file
     f = open("dftb_in.hsd", "w")
@@ -273,9 +273,9 @@ def write_DFTB_input(hamiltonian,xtbmethod,xyzfilename, elems,coords,charge,mult
         #PBC: k-points
         if periodic:
             inputlines.append("KPointsAndWeights = SupercellFolding {"+"\n")
-            inputlines.append(f"{kpoint_value} 0 0"+"\n")
-            inputlines.append(f"0 {kpoint_value} 0"+"\n")
-            inputlines.append(f"0 0 {kpoint_value}"+"\n")
+            inputlines.append(f"{kpoint_values[0]} 0 0"+"\n")
+            inputlines.append(f"0 {kpoint_values[1]} 0"+"\n")
+            inputlines.append(f"0 0 {kpoint_values[2]}"+"\n")
             inputlines.append("0 0 0"+"\n")
 
             inputlines.append("}"+"\n")
@@ -337,13 +337,13 @@ def write_DFTB_input(hamiltonian,xtbmethod,xyzfilename, elems,coords,charge,mult
         if periodic:
             inputlines.append("  KPointsAndWeights = SupercellFolding {"+"\n")
             inputlines.append("KPointsAndWeights = SupercellFolding {"+"\n")
-            inputlines.append(f"{kpoint_value} 0 0"+"\n")
-            inputlines.append(f"0 {kpoint_value} 0"+"\n")
-            inputlines.append(f"0 0 {kpoint_value}"+"\n")
+            inputlines.append(f"{kpoint_values[0]} 0 0"+"\n")
+            inputlines.append(f"0 {kpoint_values[1]} 0"+"\n")
+            inputlines.append(f"0 0 {kpoint_values[2]}"+"\n")
             inputlines.append("0 0 0"+"\n")
 
             inputlines.append("}"+"\n")
-        #inputlines.append('}\n')
+
 
     # Close Hamiltonian
     inputlines.append('}\n')

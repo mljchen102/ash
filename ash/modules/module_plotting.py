@@ -1,6 +1,10 @@
 import numpy as np
 from ash.functions.functions_general import print_line_with_mainheader,print_line_with_subheader1,ashexit
+from ash.constants import hartokcal
 
+#Relative energy conversion (if RelativeEnergy is True)
+conversionfactor = { 'kcal/mol' : 627.50946900, 'kcal/mol' : 627.50946900, 'kJ/mol' : 2625.499638, 'kJpermol' : 2625.499638,
+                    'eV' : 27.211386245988, 'cm-1' : 219474.6313702 }
 #repeated here so that plotting can be stand-alone
 class BC:
     HEADER = '\033[95m'
@@ -293,9 +297,6 @@ def reactionprofile_plot(surfacedictionary, finalunit=None,label='Label', x_axis
         print("Error: Matplotlib needs to be installed. Exiting")
         ashexit()
 
-
-    conversionfactor = { 'a.u.': 1.0, 'Eh': 1.0, 'au': 1.0, 'kcal/mol' : 627.50946900, 'kcal/mol' : 627.50946900, 'kJ/mol' : 2625.499638, 'kJpermol' : 2625.499638,
-                        'eV' : 27.211386245988, 'cm-1' : 219474.6313702 }
     e=[]
     coords=[]
 
@@ -357,9 +358,7 @@ def contourplot(surfacedictionary, label='Label',x_axislabel='Coord', y_axislabe
                 interpolparameter=10, colormap='inferno_r', dpi=200, imageformat='png', RelativeEnergy=True, numcontourlines=500,
                 contour_alpha=0.75, contourline_color='black', clinelabels=False, contour_values=None, title=""):
     print_line_with_mainheader("contourplot")
-    #Relative energy conversion (if RelativeEnergy is True)
-    conversionfactor = { 'kcal/mol' : 627.50946900, 'kcal/mol' : 627.50946900, 'kJ/mol' : 2625.499638, 'kJpermol' : 2625.499638,
-                        'eV' : 27.211386245988, 'cm-1' : 219474.6313702 }
+
     e=[]
     coords=[]
     x_c=[]
@@ -645,3 +644,81 @@ def MOplot_vertical(mos_dict, pointsize=4000, linewidth=2, label="Label", yrange
     plt.savefig(label+"."+imageformat, format=imageformat, dpi=200)
 
     print("Created plot:", label+"."+imageformat)
+
+def volumeplot(surfacedictionary, x_axislabel='X', y_axislabel='Y', z_axislabel='Z', 
+               colorbar_label='ΔE (kcal/mol)', colorscale='RdBu_r', 
+               opacity=0.1,surface_count=20,
+               RelativeEnergy=True, finalunit='kcal/mol', title="3D Potential Energy Surface",
+               imageformat='png', plot_in_browser=True):
+    try:
+        import plotly.graph_objects as go
+    except:
+        print("Use of volumeplot requires the plotly library. Loading plotly failed. Probably not installed")
+        print("Please install using e.g. pip:   pip install plotly")
+        ashexit()
+
+    # ── Unpack into coordinate and value arrays ───────────────────────────────────
+    keys = np.array(list(surfacedictionary.keys()))   # shape (N, 3)
+    vals = np.array(list(surfacedictionary.values())) # shape (N,)
+
+    x_vals = keys[:, 0]  # e.g. bondlength
+    y_vals = keys[:, 1]  # e.g. angle
+    z_vals = keys[:, 2]  # e.g. dihedral
+
+    #Creating relative-energy array here. Unmodified property is used if False
+    if RelativeEnergy is True:
+        print("RelativeEnergy option. Using finalunit:", finalunit)
+        vals_rel = (vals - vals.min()) * conversionfactor[finalunit]
+
+    # ── Reshape to a 3D grid (assumes a regular, complete grid scan) ──────────────
+    x_unique = np.unique(x_vals)
+    y_unique = np.unique(y_vals)
+    z_unique = np.unique(z_vals)
+
+    nx, ny, nz = len(x_unique), len(y_unique), len(z_unique)
+
+    # Build index maps for fast lookup
+    x_idx = {v: i for i, v in enumerate(x_unique)}
+    y_idx = {v: i for i, v in enumerate(y_unique)}
+    z_idx = {v: i for i, v in enumerate(z_unique)}
+
+    # Meshgrid so Plotly gets proper 3D coordinate arrays
+    X, Y, Z = np.meshgrid(x_unique, y_unique, z_unique, indexing='ij')
+    values = np.full((nx, ny, nz), np.nan)
+
+    for (x, y, z), e in zip(keys, vals_rel):
+        values[x_idx[x], y_idx[y], z_idx[z]] = e
+
+    # ── Plot ──────────────────────────────────────────────────────────────────────
+    fig = go.Figure(data=go.Volume(
+        x=X.flatten(),
+        y=Y.flatten(),
+        z=Z.flatten(),
+        value=values.flatten(),
+        isomin=0.0,
+        isomax=float(np.nanpercentile(vals_rel, 80)),  # focus on lower-energy region
+        opacity=opacity,
+        surface_count=surface_count,
+        colorscale=colorscale,   # blue=low energy, red=high — intuitive for PES
+        colorbar=dict(title=colorbar_label),
+        caps=dict(x_show=False, y_show=False, z_show=False),
+    ))
+
+    fig.update_layout(
+        title=title,
+        scene=dict(
+            xaxis_title=x_axislabel,
+            yaxis_title=y_axislabel,
+            zaxis_title=z_axislabel,
+        ),
+        margin=dict(l=0, r=0, b=0, t=40),
+    )
+
+    # Save PNG
+    fig.write_image(f"surface.{imageformat}")
+
+    # Save HTML
+    fig.write_html("surface.html")
+
+    if plot_in_browser:
+        fig.show()

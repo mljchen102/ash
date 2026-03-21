@@ -209,7 +209,7 @@ Mlatom_print_model_stats=Ml_print_model_stats
 
 # Plotting
 import ash.modules.module_plotting
-from .modules.module_plotting import reactionprofile_plot, contourplot, plot_Spectrum, MOplot_vertical, ASH_plot
+from .modules.module_plotting import reactionprofile_plot, contourplot, volumeplot, plot_Spectrum, MOplot_vertical, ASH_plot
 
 # Other
 import ash.interfaces.interface_crest
