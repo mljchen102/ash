@@ -145,7 +145,7 @@ def calc_surface(
                 print(f"======= Surfacepoint {pointcount}/{totalnumpoints}: {label} =======")
                 if key in surfacedictionary:
                     continue
-                allconstraints = set_constraints_nd(RC_list, rc_values, extraconstraints)
+                allconstraints = set_constraints_nd(RC_list, rc_values, extraconstraints, fragment=fragment)
                 print("allconstraints:", allconstraints)
                 geomeTRICOptimizer(
                     fragment=fragment, theory=zerotheory, maxiter=maxiter,
@@ -185,7 +185,7 @@ def calc_surface(
                 print(f"======= Surfacepoint {pointcount}/{totalnumpoints}: {label} =======")
                 if key in surfacedictionary:
                     continue
-                allconstraints = set_constraints_nd(RC_list, rc_values, extraconstraints)
+                allconstraints = set_constraints_nd(RC_list, rc_values, extraconstraints, fragment=fragment)
                 print("allconstraints:", allconstraints)
                 newfrag = copy.copy(fragment)
                 newfrag.label = key
@@ -241,7 +241,7 @@ def calc_surface(
                 print(f"{label} already in dict. Skipping.")
                 continue
  
-            allconstraints = set_constraints_nd(RC_list, rc_values, extraconstraints)
+            allconstraints = set_constraints_nd(RC_list, rc_values, extraconstraints, fragment=fragment)
             print("allconstraints:", allconstraints)
  
             if scantype.upper() == 'UNRELAXED':
@@ -488,10 +488,10 @@ def calc_surface_fromXYZ(
     # -----------------------------------------------------------------------
     # Helper: build geomeTRIC constraints for a given point
     # -----------------------------------------------------------------------
-    def build_constraints(rc_vals):
+    def build_constraints(rc_vals, frag):
         if not RC_list:
             return {}
-        return set_constraints_nd(RC_list, rc_vals, extraconstraints)
+        return set_constraints_nd(RC_list, rc_vals, extraconstraints, fragment=frag)
 
     # -----------------------------------------------------------------------
     # PARALLEL
@@ -510,7 +510,7 @@ def calc_surface_fromXYZ(
                 continue
             newfrag = ash.Fragment(xyzfile=file, label=key, charge=charge, mult=mult)
             if scantype.upper() == 'RELAXED':
-                newfrag.constraints = build_constraints(rc_vals)
+                newfrag.constraints = build_constraints(rc_vals,newfrag)
             surfacepointfragments_list.append(newfrag)
 
         if scantype.upper() == 'UNRELAXED':
@@ -581,8 +581,7 @@ def calc_surface_fromXYZ(
                 )
 
             else:  # RELAXED
-                allconstraints = build_constraints(rc_vals)
-                print("allconstraints:", allconstraints)
+                allconstraints = build_constraints(rc_vals,mol)
                 result = geomeTRICOptimizer(
                     fragment=mol, theory=theory, maxiter=maxiter,
                     coordsystem=coordsystem, constraints=allconstraints,
@@ -746,27 +745,124 @@ def _point_label(rc_values):
     """Human-readable label: 'RC1_1.5-RC2_120.0-RC3_2.0' etc."""
     return '-'.join(f'RC{i + 1}_{v}' for i, v in enumerate(rc_values))
 
-def set_constraints_nd(RC_list, rc_values, extraconstraints=None):
+def set_constraints_nd(RC_list, rc_values, extraconstraints=None, fragment=None):
     """Build a geomeTRIC constraints dict for any number of reaction coordinates.
- 
+
     Args:
-        RC_list   : list of RC dicts (already normalised, indices are list-of-lists)
-        rc_values : tuple of current values, one per RC
-        extraconstraints : optional additional constraints dict
- 
+        RC_list          : list of RC dicts (already normalised, indices are list-of-lists)
+        rc_values        : tuple of current values, one per RC
+        extraconstraints : optional additional constraints dict; each entry is a
+                           list of [*indices, value] or just [*indices] (no value).
+                           If no value is present and fragment is provided, the
+                           current geometry value is measured and appended.
+                           If no value and no fragment, an error is raised.
+        fragment         : ASH fragment, used to measure current constraint values
+                           when extraconstraints entries have no value appended.
+
     Returns:
         dict suitable for geomeTRICOptimizer's ``constraints`` argument
     """
     allconstraints = {}
+
+    # RC constraints — value always explicitly provided
     for rc, val in zip(RC_list, rc_values):
         rc_type = rc['type']
         allconstraints.setdefault(rc_type, [])
         for indices in rc['indices']:
             allconstraints[rc_type].append([*indices, val])
+
     if extraconstraints:
-        for k, v in extraconstraints.items():
-            allconstraints.setdefault(k, []).extend(v)
+        for constraint_type, entries in extraconstraints.items():
+            allconstraints.setdefault(constraint_type, [])
+            # Expected atom counts per constraint type (number of index atoms)
+            natoms = {'bond': 2, 'angle': 3, 'dihedral': 4, 'distance': 2,
+                      'cartesian': 1, 'translation-x': 1, 'translation-y': 1,
+                      'translation-z': 1, 'rotation-x': 1, 'rotation-y': 1,
+                      'rotation-z': 1}
+            expected_natoms = natoms.get(constraint_type.lower(), None)
+
+            for entry in entries:
+                # Determine whether a value is already appended:
+                # if the entry has more elements than the expected atom count,
+                # the last element is the value.
+                if expected_natoms is not None and len(entry) > expected_natoms:
+                    # Value already present — use as-is
+                    allconstraints[constraint_type].append(list(entry))
+                elif expected_natoms is not None and len(entry) == expected_natoms:
+                    # No value — measure from current geometry or error
+                    if fragment is None:
+                        print(
+                            f"Error: extraconstraint of type '{constraint_type}' "
+                            f"with indices {entry} has no value, and no fragment "
+                            f"was provided to measure it from."
+                        )
+                        ashexit()
+                    val = _measure_constraint(fragment, constraint_type, entry)
+                    print(
+                        f"extraconstraint '{constraint_type}' {entry}: "
+                        f"no value provided, using current geometry value {val:.6f}"
+                    )
+                    allconstraints[constraint_type].append([*entry, val])
+                else:
+                    # Unknown type or ambiguous length — append as-is with a warning
+                    print(
+                        f"Warning: cannot determine whether value is present for "
+                        f"extraconstraint type '{constraint_type}', entry {entry}. "
+                        f"Appending as-is."
+                    )
+                    if isinstance(entry,int):
+                        allconstraints[constraint_type].append(entry)
+                    else:
+                        allconstraints[constraint_type].append(list(entry))
+
     return allconstraints
+
+def _measure_constraint(fragment, constraint_type, indices):
+    """Measure the current value of a geometric constraint from fragment coords.
+
+    Args:
+        fragment        : ASH fragment (must have .coords in Angstrom)
+        constraint_type : 'bond', 'angle', or 'dihedral'
+        indices         : list of atom indices (0-based)
+
+    Returns:
+        float — bond length in Å, angle or dihedral in degrees
+    """
+    import numpy as np
+    coords = np.array(fragment.coords)  # shape (natoms, 3)
+
+    ct = constraint_type.lower()
+
+    if ct in ('bond', 'distance'):
+        a, b = indices
+        return float(np.linalg.norm(coords[a] - coords[b]))
+
+    elif ct == 'angle':
+        a, b, c = indices
+        v1 = coords[a] - coords[b]
+        v2 = coords[c] - coords[b]
+        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+        cos_angle = np.clip(cos_angle, -1.0, 1.0)
+        return float(np.degrees(np.arccos(cos_angle)))
+
+    elif ct == 'dihedral':
+        a, b, c, d = indices
+        b1 = coords[b] - coords[a]
+        b2 = coords[c] - coords[b]
+        b3 = coords[d] - coords[c]
+        n1 = np.cross(b1, b2)
+        n2 = np.cross(b2, b3)
+        m1 = np.cross(n1, b2 / np.linalg.norm(b2))
+        x = np.dot(n1, n2)
+        y = np.dot(m1, n2)
+        return float(np.degrees(np.arctan2(y, x)))
+
+    else:
+        print(
+            f"Warning: _measure_constraint does not know how to measure "
+            f"'{constraint_type}'. Returning 0.0 as placeholder value."
+        )
+        return 0.0
 
 def _handle_pbc(theory, fragment, pointlabel, convert_to_pbcfile):
     """Move PBC coordinate file to surface_pbcfiles/ if theory is periodic."""

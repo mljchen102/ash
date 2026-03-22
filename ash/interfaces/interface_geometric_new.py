@@ -335,7 +335,6 @@ class GeomeTRICOptimizerClass:
                         else:
                             confile.write(f'angle {angleentry[0]+1} {angleentry[1]+1} {angleentry[2]+1}\n')
             if dihedralconstraints is not None:
-                print("dihedralconstraints:", dihedralconstraints)
                 self.constraintsfile='constraints.txt'
                 with open("constraints.txt", 'a') as confile:
                     if constrainvalue is True:
