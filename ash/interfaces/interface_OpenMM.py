@@ -60,6 +60,7 @@ class OpenMMTheory:
         # $OPENMM_CPU_THREADS in shell
         # before running.
         os.environ['OMP_NUM_THREADS'] = str(numcores)
+        os.environ['OPENMM_CPU_THREADS'] = str(numcores)
         print("OpenMM CPU threads set to:", os.environ['OMP_NUM_THREADS'])
         self.numcores=numcores #Setting for general ASH compatibility
 

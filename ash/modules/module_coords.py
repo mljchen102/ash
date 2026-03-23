@@ -578,7 +578,7 @@ class Fragment:
         try:
             import openmm.app
         except ImportError:
-            print("Error: OpenMM not found. Cannot read PDB file.")
+            print("Error: OpenMM library not found. ASH requires OpenMM library to read PDB files.")
             ashexit()
         pdb = openmm.app.PDBFile(filename)
         self.coords = np.array([[i.x*10,i.y*10,i.z*10] for i in pdb.positions])
@@ -834,7 +834,7 @@ class Fragment:
         try:
             import openmm.app
         except ImportError:
-            print("Error: OpenMM not found. Cannot read PDB file.")
+            print("Error: OpenMM library not found. ASH requires OpenMM library to write PDB files.")
             ashexit()
 
         #Adding extension
@@ -868,6 +868,7 @@ class Fragment:
             self.pdb_topology._bonds=[]
         openmm.app.PDBFile.writeFile(self.pdb_topology, self.coords, file=open(f"{filename}", 'w'))
         print(f"Wrote PDB-file: {filename}")
+        return filename
 
     def write_xyzfile(self, xyzfilename="Fragment-xyzfile.xyz", writemode='w', write_chargemult=True, write_energy=True):
 

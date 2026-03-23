@@ -211,6 +211,9 @@ Mlatom_print_model_stats=Ml_print_model_stats
 import ash.modules.module_plotting
 from .modules.module_plotting import reactionprofile_plot, contourplot, volumeplot, plot_Spectrum, MOplot_vertical, ASH_plot
 
+# DL-FIND
+from ash.interfaces.interface_dlfind import DLFIND_optimizer
+
 # Other
 import ash.interfaces.interface_crest
 from .interfaces.interface_crest import call_crest, call_crest_entropy, get_crest_conformers, new_call_crest

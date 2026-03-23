@@ -68,7 +68,8 @@ class GeomeTRICOptimizerClass:
                        print_atoms_list=None, partial_hessian_atoms=None, modelhessian=None,
                        subfrctor=1, MM_PDB_traj_write=False, printlevel=2, force_coordsystem=False, result_write_to_disk=True,
                        force_noPBC=False, PBC_format_option='CIF'):
-
+            import time
+            self.time_init=time.time()
             self.printlevel=printlevel
             print_line_with_mainheader("geomeTRICOptimizer initialization")
             print_if_level("Creating optimizer object", self.printlevel,2)
@@ -537,7 +538,6 @@ class GeomeTRICOptimizerClass:
             if self.printlevel >= 1:
                 print("\nConstraints: ", constraints)
                 print("constrainvalue: ", constrainvalue)
-
             #Getting specific constraints and writing to file
             bondconstraints, angleconstraints, dihedralconstraints,xyzconstraints = self.define_constraints(constraints)
             if xyzconstraints is not None:
@@ -552,7 +552,6 @@ class GeomeTRICOptimizerClass:
                     ashexit()
                 self.constraintsfile=self.constraintsinputfile
             #################
-
 
             #Check if atom and do Singlepoint instead if so
             if fragment.numatoms == 1:
@@ -571,7 +570,6 @@ class GeomeTRICOptimizerClass:
 
             #Determine geometry-printout in each iteration. Requires knowledge on theory and fragment
             self.print_atoms_output_setting(theory,fragment)
-
             #Hessian option
             self.hessian_option(fragment,self.actatoms,theory,charge,mult,self.modelhessian)
 
@@ -587,7 +585,6 @@ class GeomeTRICOptimizerClass:
                 print(BC.WARNING,"Either install geomeTRIC using pip:\n conda install geometric\n or \n pip install geometric\n or manually from Github (https://github.com/leeping/geomeTRIC)", BC.END)
                 print("Actual error message:", e)
                 ashexit(code=9)
-
             # bondorders
             # generally unused, except PBC
             self.bothre=0.0
@@ -632,6 +629,7 @@ class GeomeTRICOptimizerClass:
             ###################################
             # RUNNING
             ###################################
+            print_time_rel(self.time_init, modulename='Time spent before run_optimizer', moduleindex=2)
             geometric.optimize.run_optimizer(**vars(final_geometric_args))
             time.sleep(1)
 
@@ -910,18 +908,7 @@ class ASHengineclass:
         #Need to combine with rest of full-system coords
         timeA=time.time()
         self.M.xyzs[0] = coords.reshape(-1, 3) * ash.constants.bohr2ang
-        #print_time_rel(timeA, modulename='geometric ASHcalc.calc reshape', moduleindex=2)
-        timeA=time.time()
         currcoords=self.M.xyzs[0]
-
-        #print("WE ARE INSIDE CALC. we are going to verify gradient")
-        #self.verify_gradient(currcoords)
-        #print("done")
-        #exit()
-
-
-
-
 
         # Call method to use
         if self.ActiveRegion is True:
