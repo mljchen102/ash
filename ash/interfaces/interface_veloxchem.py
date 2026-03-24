@@ -4,6 +4,7 @@ import shutil
 import time
 import numpy as np
 import pathlib
+from ash.modules.module_theory import Theory
 from ash.functions.functions_general import ashexit, BC, print_time_rel,print_line_with_mainheader, writestringtofile
 from ash.modules.module_coords import nucchargelist, cell_vectors_to_params, cell_params_to_vectors
 import ash.settings_ash
@@ -36,9 +37,9 @@ class VeloxchemTheory(Theory):
         # basis name
         self.basis=basis
 
-        if xcfun is not None:
-            print("Setting xcfun to:", xcfun)
-            scf_drv.xcfun = xcfun
+        #if xcfun is not None:
+        #    print("Setting xcfun to:", xcfun)
+        #    scf_drv.xcfun = xcfun
 
 
     def run(self, current_coords=None, current_MM_coords=None, MMcharges=None, qm_elems=None, mm_elems=None,
@@ -86,7 +87,8 @@ class VeloxchemTheory(Theory):
 
         scf_results = self.scf_drv.compute(molecule, basis)
         print("scf_results:",scf_results)
-
+        self.energy=None
+        self.gradient=None
         # Grad
 
         if Grad:
