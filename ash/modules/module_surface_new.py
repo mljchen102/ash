@@ -4,18 +4,20 @@ import shutil
 import copy
 import time
 import itertools
+import numpy as np
 #import ash
 from ash.functions.functions_general import frange, BC, natural_sort, print_line_with_mainheader,print_line_with_subheader1,print_time_rel, ashexit
 import ash.functions.functions_parallel
 from ash.modules.module_coords import check_charge_mult, write_CIF_file, write_POSCAR_file, write_XSF_file
 from ash.modules.module_results import ASH_Results
 from ash.interfaces.interface_geometric_new import geomeTRICOptimizer,GeomeTRICOptimizerClass
+from ash.interfaces.interface_dlfind import DLFIND_optimizer, DLFIND_optimizerClass
 from ash.modules.module_theory import NumGradclass
 
 
 # New rewritten calc_surface function
 def calc_surface(
-    fragment=None, theory=None, charge=None, mult=None,
+    fragment=None, theory=None, charge=None, mult=None, optimizer='geometric',
     scantype='UNRELAXED', resultfile='surface_results.txt',
     keepoutputfiles=True, keepmofiles=False,
     runmode='serial', coordsystem='dlc', maxiter=250,
@@ -71,6 +73,33 @@ def calc_surface(
     module_init_time = time.time()
     print_line_with_mainheader("CALC_SURFACE FUNCTION")
  
+    if optimizer.lower() == "geometric":
+        print("Optimizer to use for surface scan: geomeTRIC")
+        Optimizer=geomeTRICOptimizer
+        Optimizerclass=GeomeTRICOptimizerClass
+        opt_arguments = {
+                'coordsystem': coordsystem,
+                'maxiter': maxiter,
+                'convergence_setting': convergence_setting,
+                'conv_criteria': conv_criteria,
+                'subfrctor': subfrctor,
+                'force_noPBC': force_noPBC,
+                'PBC_format_option': PBC_format_option,
+                'ActiveRegion': ActiveRegion,
+                'constrainvalue':True, 'result_write_to_disk':False,
+            }
+    elif optimizer.lower() in ['dlfind','dl-find']:
+        print("Optimizer to use for surface scan: DL-FIND")
+        Optimizer=DLFIND_optimizer
+        Optimizerclass=DLFIND_optimizerClass
+        opt_arguments={'maxcycle':maxiter,'iopt':3, 'icoord':1}
+        # Build connectivity once
+        conn = _build_connectivity(fragment.coords, fragment.elems)
+    else:
+        print("Wrong optimizer option chosen. Valid options are: geometric and dlfind")
+        ashexit()
+
+
     # -- NumGrad wrapping ---------------------------------------------------
     if NumGrad:
         print("NumGrad flag detected. Wrapping theory object into NumGrad class")
@@ -114,7 +143,7 @@ def calc_surface(
     if getattr(theory, "periodic", False):
         print(
             "Warning: Theory is periodic. Constrained geometry optimizations by "
-            "geomeTRIC Optimizer will optimize both atom and cell parameters"
+            "Optimizer will optimize both atom and cell parameters"
         )
         print("Set force_noPBC=True if you do not want cell-parameter optimisation.")
         print(f"PBC_format_option: {PBC_format_option}")
@@ -147,14 +176,11 @@ def calc_surface(
                     continue
                 allconstraints = set_constraints_nd(RC_list, rc_values, extraconstraints, fragment=fragment)
                 print("allconstraints:", allconstraints)
-                geomeTRICOptimizer(
-                    fragment=fragment, theory=zerotheory, maxiter=maxiter,
-                    coordsystem=coordsystem, constraints=allconstraints,
-                    constrainvalue=True, convergence_setting=convergence_setting,
-                    conv_criteria=conv_criteria, subfrctor=subfrctor,
-                    ActiveRegion=ActiveRegion, actatoms=actatoms,
-                    result_write_to_disk=False, force_noPBC=force_noPBC,
-                    PBC_format_option=PBC_format_option,
+                Optimizer(
+                    fragment=fragment, theory=zerotheory, 
+                    constraints=allconstraints,
+                    actatoms=actatoms,
+                    **opt_arguments,
                 )
                 newfrag = copy.copy(fragment)
                 newfrag.label = key
@@ -171,12 +197,8 @@ def calc_surface(
 
         elif scantype.upper() == 'RELAXED':
             print("Warning: Relaxed scans in parallel mode are experimental")
-            optimizer = GeomeTRICOptimizerClass(
-                maxiter=maxiter, coordsystem=coordsystem,
-                convergence_setting=convergence_setting, conv_criteria=conv_criteria,
-                subfrctor=subfrctor, ActiveRegion=ActiveRegion, actatoms=actatoms,
-                force_noPBC=force_noPBC, PBC_format_option=PBC_format_option,
-            )
+            optimizer = Optimizerclass(
+                actatoms=actatoms, **opt_arguments)
             pointcount = 0
             for rc_values in itertools.product(*RC_value_lists):
                 pointcount += 1
@@ -188,6 +210,10 @@ def calc_surface(
                 allconstraints = set_constraints_nd(RC_list, rc_values, extraconstraints, fragment=fragment)
                 print("allconstraints:", allconstraints)
                 newfrag = copy.copy(fragment)
+                if optimizer == "dlfind":
+                    print("For DL-FIND we need to modify geometry first to set constraints.")
+                    _set_geometry_direct(newfrag, RC_list, rc_values, conn=conn)
+                    _verify_geometry(newfrag, RC_list, rc_values)
                 newfrag.label = key
                 newfrag.constraints = allconstraints
                 surfacepointfragments_list.append(newfrag)
@@ -232,7 +258,7 @@ def calc_surface(
             print(f"Surfacepoint: {pointcount} / {totalnumpoints}")
             print(f"  {label}")
             if scantype.upper() == 'UNRELAXED':
-                print("  Unrelaxed scan: using ZeroTheory + geomeTRIC to set geometry.")
+                print("  Unrelaxed scan: using ZeroTheory + Optimizer to set geometry.")
             else:
                 print("  Relaxed scan: relaxing geometry with theory + constraints.")
             print("=" * 50)
@@ -245,30 +271,30 @@ def calc_surface(
             print("allconstraints:", allconstraints)
  
             if scantype.upper() == 'UNRELAXED':
-                geomeTRICOptimizer(
-                    fragment=fragment, theory=zerotheory, maxiter=maxiter,
-                    coordsystem=coordsystem, constraints=allconstraints,
-                    constrainvalue=True, convergence_setting=convergence_setting,
-                    conv_criteria=conv_criteria, subfrctor=subfrctor,
+                Optimizer(
+                    fragment=fragment, theory=zerotheory,
+                    constraints=allconstraints,
                     charge=charge, mult=mult,
-                    ActiveRegion=ActiveRegion, actatoms=actatoms,
-                    result_write_to_disk=False, force_noPBC=force_noPBC,
-                    PBC_format_option=PBC_format_option,
+                    actatoms=actatoms, **opt_arguments,
                 )
                 result = ash.Singlepoint(
                     fragment=fragment, theory=theory, charge=charge, mult=mult,
                 )
  
             else:  # RELAXED
-                result = geomeTRICOptimizer(
-                    fragment=fragment, theory=theory, maxiter=maxiter,
-                    coordsystem=coordsystem, constraints=allconstraints,
-                    constrainvalue=True, convergence_setting=convergence_setting,
-                    conv_criteria=conv_criteria, subfrctor=subfrctor,
+                # If optimizer is DL-FIND then we have to first modify geometry
+                if optimizer == "dlfind":
+                    print("For DL-FIND we need to modify geometry first to set constraints.")
+                    #timeA=time.time()
+                    _set_geometry_direct(fragment, RC_list, rc_values, conn=conn)
+                    _verify_geometry(fragment, RC_list, rc_values)
+                    #print(f"Time to set constraint-geometry: {time.time()-timeA} seconds")
+                print("Now running Relaxed Optimization")
+                result = Optimizer(
+                    fragment=fragment, theory=theory, 
+                    constraints=allconstraints,
                     charge=charge, mult=mult,
-                    ActiveRegion=ActiveRegion, actatoms=actatoms,
-                    result_write_to_disk=False, force_noPBC=force_noPBC,
-                    PBC_format_option=PBC_format_option,
+                    actatoms=actatoms,**opt_arguments,
                 )
  
             energy = float(result.energy)
@@ -316,13 +342,13 @@ def calc_surface(
 
 # FROM XYZ
 def calc_surface_fromXYZ(
-    xyzdir=None, multixyzfile=None, theory=None, charge=None, mult=None,
+    xyzdir=None, multixyzfile=None, theory=None, charge=None, mult=None, optimizer="geometric",
     dimension=None, resultfile='surface_results.txt',
     scantype='UNRELAXED', runmode='serial',
     coordsystem='dlc', maxiter=250, extraconstraints=None,
     convergence_setting=None, conv_criteria=None, subfrctor=1, NumGrad=False,
     numcores=None,
-    keepoutputfiles=True, force_noPBC=False,
+    keepoutputfiles=True, force_noPBC=False, PBC_format_option="CIF",
     keepmofiles=False, read_mofiles=False, mofilesdir=None,
     # New ND interface:
     RC_list=None,
@@ -374,6 +400,25 @@ def calc_surface_fromXYZ(
     """
     module_init_time = time.time()
     print_line_with_mainheader("CALC_SURFACE_FROMXYZ FUNCTION")
+
+    if optimizer.lower() == "geometric":
+        print("Optimizer to use for surface scan: geomeTRIC")
+        Optimizer=geomeTRICOptimizer
+        Optimizerclass=GeomeTRICOptimizerClass
+        opt_arguments = {
+                'coordsystem': coordsystem,
+                'maxiter': maxiter,
+                'convergence_setting': convergence_setting,
+                'conv_criteria': conv_criteria,
+                'subfrctor': subfrctor,
+                'force_noPBC': force_noPBC,
+                'PBC_format_option': PBC_format_option}
+    elif optimizer.lower() in ['dlfind','dl-find']:
+        print("Optimizer to use for surface scan: DL-FIND")
+        Optimizer=DLFIND_optimizer
+        Optimizerclass=DLFIND_optimizerClass
+        opt_arguments={}
+
 
     # -- NumGrad wrapping ---------------------------------------------------
     if NumGrad:
@@ -524,10 +569,10 @@ def calc_surface_fromXYZ(
             results = ash.functions.functions_parallel.Job_parallel(**kwargs)
 
         else:  # RELAXED
-            optimizer = GeomeTRICOptimizerClass(
-                maxiter=maxiter, coordsystem=coordsystem,
-                convergence_setting=convergence_setting, conv_criteria=conv_criteria,
-                subfrctor=subfrctor, result_write_to_disk=False, force_noPBC=force_noPBC,
+            optimizer = Optimizerclass(
+                maxiter=maxiter, 
+                convergence_setting=convergence_setting, 
+                **opt_arguments,
             )
             kwargs = dict(
                 fragments=surfacepointfragments_list,
@@ -582,13 +627,11 @@ def calc_surface_fromXYZ(
 
             else:  # RELAXED
                 allconstraints = build_constraints(rc_vals,mol)
-                result = geomeTRICOptimizer(
+                result = Optimizer(
                     fragment=mol, theory=theory, maxiter=maxiter,
-                    coordsystem=coordsystem, constraints=allconstraints,
-                    constrainvalue=True, convergence_setting=convergence_setting,
-                    conv_criteria=conv_criteria, subfrctor=subfrctor,
-                    charge=charge, mult=mult, result_write_to_disk=False,
-                    force_noPBC=force_noPBC,
+                    constraints=allconstraints,
+                    convergence_setting=convergence_setting,
+                    charge=charge, mult=mult, **opt_arguments,
                 )
                 xyzname = f"{label}.xyz"
                 mol.write_xyzfile(xyzfilename=xyzname)
@@ -639,30 +682,28 @@ def read_surfacedict_from_file(resultfile, dimension=None):
             try:
                 energy = float(tokens[-1])
                 rc_vals = tuple(float(t) for t in tokens[:-1])
-                if dimension == 1:
-                    # Legacy: 1D keys stored as bare float in old files
-                    key = rc_vals[0] if len(rc_vals) == 1 else rc_vals
-                else:
-                    key = rc_vals
+                #if dimension == 1:
+                #    # Legacy: 1D keys stored as bare float in old files
+                #    key = rc_vals[0] if len(rc_vals) == 1 else rc_vals
+                #else:
+                key = rc_vals
                 surfacedictionary[key] = float(energy)
             except (ValueError, IndexError):
                 print(f"Warning: could not parse line: {line!r}")
     return surfacedictionary
 
 def write_surfacedict_to_file(surfacedictionary, resultfile, dimension=None):
-    """Write surface dictionary to resultfile.
-
-    Each line: RC1_val [RC2_val ...] energy
-    """
     with open(resultfile, 'w') as f:
         f.write("# Surface scan results\n")
         f.write("# RC1 [RC2 ...] Energy\n")
-        print("surfacedictionary.items():", surfacedictionary.items())
-        for key, energy in sorted(surfacedictionary.items()):
-            if isinstance(key, tuple):
-                rc_str = '  '.join(str(v) for v in key)
-            else:
-                rc_str = str(key)
+        # Normalise keys to tuples so sorted() always works regardless of
+        # whether the dict came from a fresh run or a legacy result file
+        normalised = {
+            (k,) if not isinstance(k, tuple) else k: v
+            for k, v in surfacedictionary.items()
+        }
+        for key, energy in sorted(normalised.items()):
+            rc_str = '  '.join(str(v) for v in key)
             f.write(f"{rc_str}  {energy}\n")
 
 
@@ -828,7 +869,6 @@ def _measure_constraint(fragment, constraint_type, indices):
     Returns:
         float — bond length in Å, angle or dihedral in degrees
     """
-    import numpy as np
     coords = np.array(fragment.coords)  # shape (natoms, 3)
 
     ct = constraint_type.lower()
@@ -900,3 +940,396 @@ def _handle_output_files(theory, pointlabel, keepoutputfiles, keepmofiles):
             )
         except FileNotFoundError:
             pass
+
+def _preset_geometry(fragment, RC_list, rc_values, extraconstraints,
+                     coordsystem, maxiter, ActiveRegion, actatoms,
+                     force_noPBC, PBC_format_option):
+    """Use ZeroTheory + geomeTRIC to move fragment to the target RC values.
+    
+    This is required before calling any optimizer that only freezes the
+    current geometry value (e.g. DL-FIND) rather than constraining to a
+    specified target value.
+    """
+    zerotheory = ash.ZeroTheory()
+    allconstraints = set_constraints_nd(RC_list, rc_values, extraconstraints, fragment=fragment)
+    geomeTRICOptimizer(
+        fragment=fragment, theory=zerotheory,
+        constraints=allconstraints, constrainvalue=True,
+        coordsystem=coordsystem, maxiter=maxiter,
+        ActiveRegion=ActiveRegion, actatoms=actatoms,
+        result_write_to_disk=False,
+        force_noPBC=force_noPBC, PBC_format_option=PBC_format_option,
+    )
+
+
+
+
+
+
+
+
+# ---------------------------------------------------------------------------
+# Covalent radii (Angstrom) — used for connectivity detection
+# Subset covering most common elements; extend as needed.
+# ---------------------------------------------------------------------------
+_COVALENT_RADII = {
+    'H': 0.31, 'He': 0.28,
+    'Li': 1.28, 'Be': 0.96, 'B': 0.84, 'C': 0.76, 'N': 0.71, 'O': 0.66,
+    'F': 0.57, 'Ne': 0.58,
+    'Na': 1.66, 'Mg': 1.41, 'Al': 1.21, 'Si': 1.11, 'P': 1.07, 'S': 1.05,
+    'Cl': 1.02, 'Ar': 1.06,
+    'K': 2.03, 'Ca': 1.76, 'Sc': 1.70, 'Ti': 1.60, 'V': 1.53, 'Cr': 1.39,
+    'Mn': 1.61, 'Fe': 1.52, 'Co': 1.50, 'Ni': 1.24, 'Cu': 1.32, 'Zn': 1.22,
+    'Ga': 1.22, 'Ge': 1.20, 'As': 1.19, 'Se': 1.20, 'Br': 1.20, 'Kr': 1.16,
+    'Rb': 2.20, 'Sr': 1.95, 'Y': 1.90, 'Zr': 1.75, 'Nb': 1.64, 'Mo': 1.54,
+    'Tc': 1.47, 'Ru': 1.46, 'Rh': 1.42, 'Pd': 1.39, 'Ag': 1.45, 'Cd': 1.44,
+    'In': 1.42, 'Sn': 1.39, 'Sb': 1.39, 'Te': 1.38, 'I': 1.39, 'Xe': 1.40,
+    'Cs': 2.44, 'Ba': 2.15, 'La': 2.07, 'Ce': 2.04, 'Pr': 2.03, 'Nd': 2.01,
+    'Hf': 1.75, 'Ta': 1.70, 'W': 1.62, 'Re': 1.51, 'Os': 1.44, 'Ir': 1.41,
+    'Pt': 1.36, 'Au': 1.36, 'Hg': 1.32, 'Tl': 1.45, 'Pb': 1.46, 'Bi': 1.48,
+}
+_DEFAULT_RADIUS = 1.50   # fallback for unknown elements
+_CONNECTIVITY_TOLERANCE = 0.40  # Angstrom added to sum of covalent radii
+ 
+ 
+# ---------------------------------------------------------------------------
+# Measurement helpers
+# ---------------------------------------------------------------------------
+ 
+def _measure_bond(coords, i, j):
+    """Bond length in Angstrom between atoms i and j."""
+    return float(np.linalg.norm(coords[i] - coords[j]))
+ 
+ 
+def _measure_angle(coords, i, j, k):
+    """Angle i-j-k in degrees (j is the vertex)."""
+    v1 = coords[i] - coords[j]
+    v2 = coords[k] - coords[j]
+    cos_a = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+    return float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
+ 
+ 
+def _measure_dihedral(coords, i, j, k, l):
+    """Dihedral angle i-j-k-l in degrees (range -180 to 180)."""
+    b1 = coords[j] - coords[i]
+    b2 = coords[k] - coords[j]
+    b3 = coords[l] - coords[k]
+    n1 = np.cross(b1, b2)
+    n2 = np.cross(b2, b3)
+    m1 = np.cross(n1, b2 / np.linalg.norm(b2))
+    return float(np.degrees(np.arctan2(np.dot(m1, n2), np.dot(n1, n2))))
+ 
+ 
+# ---------------------------------------------------------------------------
+# Connectivity
+# ---------------------------------------------------------------------------
+ 
+def _build_connectivity(coords, elems):
+    coords = np.asarray(coords)
+    n = len(elems)
+    radii = np.array([
+        _COVALENT_RADII.get(e.capitalize(), _DEFAULT_RADIUS) for e in elems
+    ])
+    conn = [set() for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            dist = np.linalg.norm(coords[i] - coords[j])
+            threshold = radii[i] + radii[j] + _CONNECTIVITY_TOLERANCE
+            # Ignore very short distances (e.g. same atom or ghost atoms)
+            if 0.4 < dist < threshold:
+                conn[i].add(j)
+                conn[j].add(i)
+    return conn
+ 
+ 
+def _atoms_on_side(start, fixed, conn):
+    """BFS: return set of atom indices reachable from *start* without
+    crossing *fixed*.  Used to find which atoms move when a bond is stretched
+    or a dihedral is rotated.
+ 
+    Args:
+        start : atom index to start BFS from
+        fixed : atom index that acts as the barrier (not included in result)
+        conn  : adjacency list from _build_connectivity
+ 
+    Returns:
+        set of atom indices (includes *start*, excludes *fixed*)
+    """
+    visited = {fixed}   # seed with fixed so BFS never crosses it
+    queue = [start]
+    visited.add(start)
+    while queue:
+        current = queue.pop()
+        for neighbour in conn[current]:
+            if neighbour not in visited:
+                visited.add(neighbour)
+                queue.append(neighbour)
+    visited.discard(fixed)
+    return visited
+ 
+ 
+# ---------------------------------------------------------------------------
+# Bond length
+# ---------------------------------------------------------------------------
+ 
+def _set_bond(coords, i, j, target, conn):
+    """Set bond length i-j to *target* Angstrom by translating the smaller
+    connected fragment.
+ 
+    The atom with the smaller connected component (determined by BFS through
+    *conn* with the i-j bond removed) is moved together with all atoms on its
+    side.
+ 
+    Args:
+        coords : (N, 3) numpy array, modified in-place
+        i, j   : atom indices defining the bond
+        target : target bond length in Angstrom
+        conn   : adjacency list from _build_connectivity
+    """
+    current = _measure_bond(coords, i, j)
+    if abs(current - target) < 1e-6:
+        return
+ 
+    # Find which side is smaller — move that side
+    side_i = _atoms_on_side(i, fixed=j, conn=conn)
+    side_j = _atoms_on_side(j, fixed=i, conn=conn)
+ 
+    if len(side_i) <= len(side_j):
+        move_atoms = side_i
+        direction = coords[i] - coords[j]   # points toward i from j
+    else:
+        move_atoms = side_j
+        direction = coords[j] - coords[i]   # points toward j from i
+ 
+    unit = direction / np.linalg.norm(direction)
+    delta = (target - current) * unit
+    for atom in move_atoms:
+        coords[atom] += delta
+ 
+ 
+# ---------------------------------------------------------------------------
+# Bond angle
+# ---------------------------------------------------------------------------
+ 
+def _set_angle(coords, i, j, k, target_deg, conn):
+    current_deg = _measure_angle(coords, i, j, k)
+    delta_deg = target_deg - current_deg
+    if abs(delta_deg) < 1e-6:
+        return
+
+    v1 = coords[i] - coords[j]   # vector from vertex to i
+    v2 = coords[k] - coords[j]   # vector from vertex to k
+
+    # Rotation axis perpendicular to the i-j-k plane
+    axis = np.cross(v1, v2)
+    axis_norm = np.linalg.norm(axis)
+
+    if axis_norm < 1e-8:
+        # v1 and v2 are (anti)parallel — the plane is undefined.
+        # Build an arbitrary perpendicular to v1 as the rotation axis.
+        axis = _arbitrary_perpendicular(v1)
+    else:
+        axis = axis / axis_norm
+
+    # Rotate the smaller side
+    side_i = _atoms_on_side(i, fixed=j, conn=conn)
+    side_k = _atoms_on_side(k, fixed=j, conn=conn)
+    
+    # Fallback: if connectivity failed, move just the single terminal atom
+    if len(side_i) == 0:
+        print(f"Warning: _set_angle: no atoms found on i-side of bond {j}-{i}. "
+            f"Check connectivity. Falling back to moving atom {i} only.")
+        side_i = {i}
+    if len(side_k) == 0:
+        print(f"Warning: _set_angle: no atoms found on k-side of bond {j}-{k}. "
+            f"Check connectivity. Falling back to moving atom {k} only.")
+        side_k = {k}
+
+    if len(side_i) <= len(side_k):
+        move_atoms = side_i
+        angle_rad = np.radians(delta_deg)
+    else:
+        move_atoms = side_k
+        angle_rad = np.radians(-delta_deg)
+
+    # --- Sign check: trial rotation ---
+    R_trial = _rotation_matrix(axis, angle_rad)
+    pivot = coords[j]
+    coords_trial = coords.copy()
+    for atom in move_atoms:
+        coords_trial[atom] = pivot + R_trial @ (coords_trial[atom] - pivot)
+
+    achieved_trial = _measure_angle(coords_trial, i, j, k)
+    error_pos = abs(achieved_trial - target_deg)
+    error_neg = abs(_measure_angle(
+        _apply_rotation(coords, move_atoms, pivot,
+                        _rotation_matrix(axis, -angle_rad)), i, j, k
+    ) - target_deg)
+
+    # Pick the direction that gets closer to target
+    if error_neg < error_pos:
+        angle_rad = -angle_rad
+
+    R = _rotation_matrix(axis, angle_rad)
+    for atom in move_atoms:
+        coords[atom] = pivot + R @ (coords[atom] - pivot)
+ 
+def _apply_rotation(coords, move_atoms, pivot, R):
+    """Return a copy of coords with move_atoms rotated — used for trial checks."""
+    coords_trial = coords.copy()
+    for atom in move_atoms:
+        coords_trial[atom] = pivot + R @ (coords_trial[atom] - pivot)
+    return coords_trial
+# ---------------------------------------------------------------------------
+# Dihedral angle
+# ---------------------------------------------------------------------------
+ 
+def _set_dihedral(coords, i, j, k, l, target_deg, conn):
+    current_deg = _measure_dihedral(coords, i, j, k, l)
+    delta_deg = target_deg - current_deg
+
+    # Wrap into (-180, 180]
+    delta_deg = (delta_deg + 180.0) % 360.0 - 180.0
+
+    if abs(delta_deg) < 1e-6:
+        return
+
+    axis = coords[k] - coords[j]
+    axis = axis / np.linalg.norm(axis)
+
+    move_atoms = _atoms_on_side(l, fixed=k, conn=conn)
+
+    # Trial rotation with +delta to check sign
+    R_trial = _rotation_matrix(axis, np.radians(delta_deg))
+    pivot = coords[k]
+    coords_trial = coords.copy()
+    for atom in move_atoms:
+        coords_trial[atom] = pivot + R_trial @ (coords_trial[atom] - pivot)
+
+    achieved_trial = _measure_dihedral(coords_trial, i, j, k, l)
+    error_pos = abs((achieved_trial - target_deg + 180.0) % 360.0 - 180.0)
+
+    # If positive delta moved us away, flip the sign
+    if error_pos > abs(delta_deg) * 0.5:
+        delta_deg = -delta_deg
+
+    R = _rotation_matrix(axis, np.radians(delta_deg))
+    for atom in move_atoms:
+        coords[atom] = pivot + R @ (coords[atom] - pivot)
+ 
+ 
+# ---------------------------------------------------------------------------
+# Low-level math helpers
+# ---------------------------------------------------------------------------
+ 
+def _rotation_matrix(axis, angle_rad):
+    """Rodrigues' rotation formula: 3x3 rotation matrix.
+ 
+    Args:
+        axis      : unit vector (length-3 array)
+        angle_rad : rotation angle in radians
+ 
+    Returns:
+        (3, 3) numpy array
+    """
+    c = np.cos(angle_rad)
+    s = np.sin(angle_rad)
+    t = 1.0 - c
+    x, y, z = axis
+    return np.array([
+        [t*x*x + c,   t*x*y - s*z, t*x*z + s*y],
+        [t*x*y + s*z, t*y*y + c,   t*y*z - s*x],
+        [t*x*z - s*y, t*y*z + s*x, t*z*z + c  ],
+    ])
+ 
+ 
+def _arbitrary_perpendicular(v):
+    """Return a unit vector perpendicular to *v* (for collinear edge case)."""
+    v = np.asarray(v, dtype=float)
+    if abs(v[0]) < 0.9:
+        perp = np.array([1.0, 0.0, 0.0])
+    else:
+        perp = np.array([0.0, 1.0, 0.0])
+    perp = np.cross(v, perp)
+    return perp / np.linalg.norm(perp)
+ 
+ 
+# ---------------------------------------------------------------------------
+# Top-level dispatcher
+# ---------------------------------------------------------------------------
+ 
+def _set_geometry_direct(fragment, RC_list, rc_values, conn=None):
+    """Move fragment.coords to the target RC values without any optimiser.
+ 
+    Supports constraint types: 'bond', 'angle', 'dihedral'.
+    Connectivity is built once from the current geometry.
+    All RC coordinates are applied sequentially; if multiple RCs share atoms
+    they are applied in the order given (same order as RC_list).
+ 
+    For symmetric constraints (multiple index sets per RC, e.g. two equivalent
+    bonds) all index sets are applied for the same target value.
+ 
+    Args:
+        fragment  : ASH Fragment object with .coords (Angstrom) and .elems
+        RC_list   : normalised RC_list (indices already list-of-lists)
+        rc_values : tuple of target values, one per RC entry in RC_list
+    """
+    coords = np.array(fragment.coords, dtype=float)   # working copy
+    elems  = fragment.elems
+ 
+    # Build connectivity once — cheap, done from current geometry
+    print("Connectivity of atoms 0,1,2:", {a: conn[a] for a in [0,1,2]})
+ 
+    for rc, target in zip(RC_list, rc_values):
+        rc_type = rc['type'].lower()
+        for indices in rc['indices']:       # rc['indices'] is list-of-lists
+            if rc_type in ('bond', 'distance'):
+                i, j = indices
+                _set_bond(coords, i, j, float(target), conn)
+ 
+            elif rc_type == 'angle':
+                i, j, k = indices
+                _set_angle(coords, i, j, k, float(target), conn)
+ 
+            elif rc_type == 'dihedral':
+                i, j, k, l = indices
+                _set_dihedral(coords, i, j, k, l, float(target), conn)
+ 
+            else:
+                print(
+                    f"Warning: _set_geometry_direct does not support constraint "
+                    f"type '{rc_type}'. Skipping."
+                )
+ 
+    # Write the modified coordinates back into the fragment
+    fragment.coords =coords
+ 
+ 
+# ---------------------------------------------------------------------------
+# Verification helper (optional, useful for debugging)
+# ---------------------------------------------------------------------------
+ 
+def _verify_geometry(fragment, RC_list, rc_values, tol=1e-3):
+    coords = np.array(fragment.coords)
+    print("  RC pre-set verification:")
+    for i, (rc, target) in enumerate(zip(RC_list, rc_values)):
+        rc_type = rc['type'].lower()
+        for indices in rc['indices']:
+            if rc_type in ('bond', 'distance'):
+                achieved = _measure_bond(coords, *indices)
+                deviation = abs(achieved - target)
+            elif rc_type == 'angle':
+                achieved = _measure_angle(coords, *indices)
+                deviation = abs(achieved - target)
+            elif rc_type == 'dihedral':
+                achieved = _measure_dihedral(coords, *indices)
+                # Normalize deviation to (-180, 180] — 190 and -170 are identical
+                deviation = abs((achieved - target + 180.0) % 360.0 - 180.0)
+            else:
+                continue
+            flag = " <-- WARNING" if deviation > tol else ""
+            print(
+                f"    RC{i+1} {rc_type} {indices}: "
+                f"target={target:.4f}  achieved={achieved:.4f}  "
+                f"dev={deviation:.4f}{flag}"
+            )

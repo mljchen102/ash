@@ -25,7 +25,8 @@ def DLFIND_optimizer(jobtype=None, theory=None, fragment=None, fragment2=None, c
                      icoord=None, iopt=None, nimage=None, 
                      hessian_choice="numfreq", inithessian=0, 
                      numfreq_npoint=1, numfreq_displacement=0.005, numfreq_hessatoms=None,
-                     numfreq_force_projection=None, print_atoms_list=None):
+                     numfreq_force_projection=None, print_atoms_list=None,
+                     force_noPBC=False, PBC_format_option='CIF'):
     """
     Wrapper function around DLFIND_optimizerClass
     """
@@ -42,7 +43,8 @@ def DLFIND_optimizer(jobtype=None, theory=None, fragment=None, fragment2=None, c
                                     hessian_choice=hessian_choice, inithessian=inithessian, 
                                     numfreq_npoint=numfreq_npoint,numfreq_displacement=numfreq_displacement,
                                     numfreq_hessatoms=numfreq_hessatoms,numfreq_force_projection=numfreq_force_projection,
-                                    print_atoms_list=print_atoms_list)
+                                    print_atoms_list=print_atoms_list,
+                                    force_noPBC=force_noPBC, PBC_format_option=PBC_format_option)
 
     # If NumGrad then we wrap theory object into NumGrad class object
     if NumGrad:
@@ -66,7 +68,8 @@ class DLFIND_optimizerClass:
                  icoord=None, iopt=None, nimage=None, delta=0.01, 
                  hessian_choice='numfreq', inithessian=None, 
                  numfreq_npoint=1,numfreq_displacement=0.005,numfreq_force_projection=None,
-                 numfreq_hessatoms=None, print_atoms_list=None):
+                 numfreq_hessatoms=None, print_atoms_list=None,
+                 force_noPBC=False, PBC_format_option='CIF'):
 
         print_line_with_mainheader("DLFIND_optimizer initialization")
         print()
@@ -186,6 +189,7 @@ class DLFIND_optimizerClass:
 
         # Residues for HDLC
         self.residues=residues
+        
         #Constraints
         self.constraints=constraints
 
@@ -199,11 +203,28 @@ class DLFIND_optimizerClass:
             print("No residues provided to optimizer. Creating a single residue for whole active system.")
         else:
             print("Residues provided to optimizer:", self.residues)
+
         # What to optimize etc.
         self.spec=[]
+
+        # First dentify possible frozen constraints defined in constraints dict
+        if self.constraints is not None:
+            if 'xyz' in self.constraints:
+                print("XYZ constraints found in constraints dict.", self.constraints['xyz'])
+                print("Adding to frozenatoms list")
+                if frozenatoms is None:
+                    frozenatoms=[]
+                frozenatoms = self.constraints['xyz']
+
         if actatoms is not None:
             print("Actatoms provided:", actatoms)
+            if frozenatoms is not None:
+                if len(frozenatoms) > 0:
+                    print("frozenatoms:", frozenatoms)
+                    print("Error: actatoms and frozenatoms can not both be defined")
+                    ashexit()
             print("All atoms:", fragment.allatoms)
+
             for i in fragment.allatoms:
                 if i in actatoms:
                     if self.residues is not None:
@@ -215,6 +236,7 @@ class DLFIND_optimizerClass:
         elif frozenatoms is not None:
             print("Frozenatoms provided:", frozenatoms)
             print("All atoms:", fragment.allatoms)
+
             for i in fragment.allatoms:
                 if i in frozenatoms:
                     self.spec.append(-1)
@@ -255,7 +277,7 @@ class DLFIND_optimizerClass:
                         b = [2,x[0]+1,x[1]+1,x[2]+1,0]
                         conlist += b
                         self.numcons+=1
-                elif k == 'dihedral':
+                elif k == 'dihedral' or k == 'torsion':
                     print("Found dihedral constraint between atoms:", v)
                     for x in v:
                         b = [3,x[0]+1,x[1]+1,x[2]+1,x[3]+1]
