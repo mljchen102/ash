@@ -121,7 +121,7 @@ class MACETheory():
     def train(self, config_file="config.yml", name="model",model="MACE", platform=None, device=None,
                       valid_fraction=0.1, train_file="train_data_mace.xyz",E0s=None,
                       energy_key='energy_REF', forces_key='forces_REF',        
-                      energy_weight=1, forces_weight=100,
+                      energy_weight=1, forces_weight=100, seed=42,
                       max_num_epochs=500, swa=True, batch_size=10,
                       max_L = 0, r_max = 5.0, num_channels=128,  
                       results_dir= "MACE_models", checkpoints_dir = "MACE_models", 
@@ -164,6 +164,7 @@ class MACETheory():
         print("forces_weight:", forces_weight)
         print("max_num_epochs:", max_num_epochs)
         print("swa:", swa)
+        print("seed:", seed)
         print("batch_size:", batch_size)
         print("max_L:", max_L)
         print("r_max:", r_max)
@@ -184,7 +185,7 @@ class MACETheory():
                       energy_key=energy_key, forces_key=forces_key,        
                       energy_weight=energy_weight, forces_weight=forces_weight,
                       max_num_epochs=max_num_epochs, swa=swa, batch_size=batch_size,
-                      max_L = max_L, r_max = r_max, 
+                      max_L = max_L, r_max = r_max, seed=seed,
                       num_channels=num_channels,  
                       results_dir= results_dir, checkpoints_dir = checkpoints_dir, 
                       log_dir=log_dir, model_dir=model_dir)
@@ -562,7 +563,6 @@ class MACETheory():
 # max_L: symmetry of messages. affects speed and accuracy. default 1 (compromise of speed/acc), 2 more accurate and slower, 0 is fast
 # r_max: cutoff radius of local env. Recommended: 4-7 Ang
 #NOTE: E0s="average" is easiest but not recommended.
-##todo: seed
 def write_mace_config(config_file="config.yml", name="model",model="MACE", platform='cpu',device=None, 
                       valid_fraction=0.1, train_file="train_data_mace.xyz",E0s=None,
                       energy_key='energy_REF', forces_key='forces_REF',        
