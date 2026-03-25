@@ -883,7 +883,7 @@ def thermochemcalc(vfreq,atoms,fragment, multiplicity, temp=298.15,pressure=1.0,
                sigma_r = 1.0
             else:
                sigma_r = symmetry_number
-            nonzero_I = [I for I in I if I > 0]
+            nonzero_I = [i for i in I if i > 0]
             rot_temps_x = ash.constants.h_planck**2 / (8 * math.pi**2 * ash.constants.k_b_JK * nonzero_I[0])
             #sigma_r=1.0
             q_r=(1/sigma_r)*(temp/(rot_temps_x))
