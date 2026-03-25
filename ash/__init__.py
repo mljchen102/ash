@@ -85,7 +85,7 @@ from .modules.module_hybridtheory import DualTheory,WrapTheory
 from .modules.module_oniom import ONIOMTheory
 
 # Surface
-from .modules.module_surface_new import calc_surface, calc_surface_fromXYZ, read_surfacedict_from_file, write_surfacedict_to_file
+from .modules.module_surface_new import calc_surface, calc_surface_fromXYZ, read_surfacedict_from_file, write_surfacedict_to_file, RestraintTheory
 
 # # QMcode interfaces
 from .interfaces.interface_ORCA import ORCATheory, counterpoise_calculation_ORCA, ORCA_External_Optimizer, run_orca_plot, MolecularOrbitalGrab, \

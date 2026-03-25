@@ -13,7 +13,7 @@ from ash.modules.module_results import ASH_Results
 from ash.interfaces.interface_geometric_new import geomeTRICOptimizer,GeomeTRICOptimizerClass
 from ash.interfaces.interface_dlfind import DLFIND_optimizer, DLFIND_optimizerClass
 from ash.modules.module_theory import NumGradclass
-
+from ash.constants import ang2bohr
 
 # New rewritten calc_surface function
 def calc_surface(
@@ -22,6 +22,7 @@ def calc_surface(
     keepoutputfiles=True, keepmofiles=False,
     runmode='serial', coordsystem='dlc', maxiter=250,
     NumGrad=False, extraconstraints=None,
+    set_geometry_via_restraint=True,
     convergence_setting=None, conv_criteria=None,
     subfrctor=1, force_noPBC=False,
     numcores=1, ActiveRegion=False, actatoms=None,
@@ -211,13 +212,21 @@ def calc_surface(
                 print("allconstraints:", allconstraints)
                 newfrag = copy.copy(fragment)
                 if optimizer == "dlfind":
-                    print("For DL-FIND we need to modify geometry first to set constraints.")
-                    _set_geometry_direct(newfrag, RC_list, rc_values, conn=conn)
+                    print("For DL-FIND we need to modify geometry first to the desired constraint value.")
+                    print("set_geometry_via_restraint keyword is:", set_geometry_via_restraint)
+                    if set_geometry_via_restraint is True:
+                        print("Modifying geometry to get constraint value via DL-FIND restraint optimization")
+                        _preset_geometry_restraint(newfrag, RC_list, rc_values, optimizer,
+                                    opt_arguments, charge, mult,printlevel=1,
+                                    force_constant=10000.0)
+                    else:
+                        print("Modifying geometry to get constraint value via coordinate manipulation")
+                        _set_geometry_direct(newfrag, RC_list, rc_values, conn=conn)
                     _verify_geometry(newfrag, RC_list, rc_values)
                 newfrag.label = key
                 newfrag.constraints = allconstraints
                 surfacepointfragments_list.append(newfrag)
- 
+
             result_surface = ash.functions.functions_parallel.Job_parallel(
                 fragments=surfacepointfragments_list, theories=[theory],
                 numcores=numcores, Opt=True, optimizer=optimizer,
@@ -232,7 +241,7 @@ def calc_surface(
                     f"surface_xyzfiles/{label}.xyz",
                 )
             surfacedictionary = result_surface.energies_dict
- 
+
         print("Parallel calculation done!")
         print("surfacedictionary:", surfacedictionary)
         if len(surfacedictionary) != totalnumpoints:
@@ -240,7 +249,7 @@ def calc_surface(
                 f"Warning: Dictionary incomplete! "
                 f"Got {len(surfacedictionary)}, expected {totalnumpoints}"
             )
- 
+
     # -----------------------------------------------------------------------
     # SERIAL MODE
     # -----------------------------------------------------------------------
@@ -248,7 +257,7 @@ def calc_surface(
         print("Serial runmode")
         zerotheory = ash.ZeroTheory()
         pointcount = 0
- 
+
         for rc_values in itertools.product(*RC_value_lists):
             pointcount += 1
             key = _point_key(rc_values)
@@ -282,12 +291,19 @@ def calc_surface(
                 )
  
             else:  # RELAXED
-                # If optimizer is DL-FIND then we have to first modify geometry
                 if optimizer == "dlfind":
                     print("For DL-FIND we need to modify geometry first to set constraints.")
-                    #timeA=time.time()
-                    _set_geometry_direct(fragment, RC_list, rc_values, conn=conn)
+                    if set_geometry_via_restraint is True:
+                        print("Modifying geometry to set constraints via DL-FIND restraint optimization")
+                        # NOTE: passing extraconstraints if any
+                        _preset_geometry_restraint(fragment, RC_list, rc_values, Optimizer,
+                                    opt_arguments, charge, mult,printlevel=1, extraconstraints=extraconstraints,
+                                    force_constant=10000.0)
+                    else:
+                        print("Modifying geometry to set constraints via coordinate manipulation")
+                        _set_geometry_direct(fragment, RC_list, rc_values, conn=conn)
                     _verify_geometry(fragment, RC_list, rc_values)
+
                     #print(f"Time to set constraint-geometry: {time.time()-timeA} seconds")
                 print("Now running Relaxed Optimization")
                 result = Optimizer(
@@ -299,7 +315,7 @@ def calc_surface(
  
             energy = float(result.energy)
             print(f"  {label}  Energy: {energy}")
- 
+
             # -- File I/O ---------------------------------------------------
             fragment.write_xyzfile(xyzfilename="surface_traj.xyz", writemode='a')
             xyzname = f"{label}.xyz"
@@ -1255,7 +1271,7 @@ def _arbitrary_perpendicular(v):
  
  
 # ---------------------------------------------------------------------------
-# Top-level dispatcher
+# A function to set the geometry directly
 # ---------------------------------------------------------------------------
  
 def _set_geometry_direct(fragment, RC_list, rc_values, conn=None):
@@ -1306,7 +1322,7 @@ def _set_geometry_direct(fragment, RC_list, rc_values, conn=None):
  
  
 # ---------------------------------------------------------------------------
-# Verification helper (optional, useful for debugging)
+# Verifying the set geometry constraint
 # ---------------------------------------------------------------------------
  
 def _verify_geometry(fragment, RC_list, rc_values, tol=1e-3):
@@ -1333,3 +1349,264 @@ def _verify_geometry(fragment, RC_list, rc_values, tol=1e-3):
                 f"target={target:.4f}  achieved={achieved:.4f}  "
                 f"dev={deviation:.4f}{flag}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Implementation of a RestraintTheory: alternative way of setting restraints
+# ---------------------------------------------------------------------------
+
+def _preset_geometry_restraint(fragment, RC_list, rc_values, optimizer, 
+                                opt_arguments, charge, mult,printlevel=1, extraconstraints=None,
+                                force_constant=10000.0):
+    """Drive geometry to target RC values using RestraintTheory + any optimiser."""
+    restraints = []
+    for rc, target in zip(RC_list, rc_values):
+        for indices in rc['indices']:
+            restraints.append({
+                'type':    rc['type'],
+                'indices': indices,
+                'target':  float(target),
+            })
+
+    restraint_theory = RestraintTheory(
+        restraints=restraints,
+        force_constant=force_constant,
+    )
+
+    # Strip any constraints from opt_arguments — we don't want them here
+    preset_args = {k: v for k, v in opt_arguments.items()
+                   if k not in ('constraints', 'constrainvalue')}
+    # Optimizing with restraint theory, passing extraconstraints as contraints if present
+    optimizer(
+        fragment=fragment, theory=restraint_theory, constraints=extraconstraints,
+        charge=charge, mult=mult, printlevel=printlevel,
+        **preset_args,
+    )
+
+
+
+class RestraintTheory:
+    def __init__(self, fragment=None, printlevel=None, numcores=1, label=None,
+                 restraints=None, force_constant=10000.0):
+        """RestraintTheory: A theory that implements harmonic restraint potentials
+        on internal coordinates (bonds, angles, dihedrals). Designed to be used
+        with an optimiser  to drive geometry to target RC values.
+
+        The energy and gradient are purely from harmonic restraints:
+            E = 0.5 * k * (q - q0)^2
+        where q is the current value of the internal coordinate and q0 is the
+        target value. Angles and dihedrals use degree units internally but the
+        force constant should be chosen accordingly (see below).
+
+        Args:
+            fragment       : ASH fragment. Defaults to None.
+            printlevel     : print verbosity 0-3. Defaults to None.
+            numcores       : number of cores (unused, for consistency). Defaults to 1.
+            label          : string label. Defaults to None.
+            restraints     : list of restraint dicts, each with keys:
+                                 'type'    : 'bond', 'angle', or 'dihedral'
+                                 'indices' : list of atom indices
+                                 'target'  : target value (Å for bonds,
+                                             degrees for angles/dihedrals)
+                             Example:
+                                 [{'type': 'bond',     'indices': [0, 1], 'target': 1.2},
+                                  {'type': 'angle',    'indices': [1, 0, 2], 'target': 104.5},
+                                  {'type': 'dihedral', 'indices': [0,1,2,3], 'target': 180.0}]
+            force_constant : harmonic force constant k. Defaults to 10000.0.
+                             Units: energy/Å² for bonds, energy/deg² for angles
+                             and dihedrals. The default is chosen to be stiff
+                             enough to reach the target closely in a few steps.
+                             Reduce if the optimiser has convergence problems.
+        """
+        self.numcores        = numcores
+        self.printlevel      = printlevel
+        self.label           = label
+        self.fragment        = fragment
+        self.filename        = "restrainttheory"
+        self.theorynamelabel = "RestraintTheory"
+        self.theorytype      = "QM"    # treated as QM so ASH passes coords/grad
+
+        self.restraints      = restraints if restraints is not None else []
+        self.force_constant  = force_constant
+
+        self.energy   = 0.0
+        self.gradient = None
+
+    # ------------------------------------------------------------------
+    # Internal coordinate measurement
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _measure_bond(coords, i, j):
+        return float(np.linalg.norm(coords[i] - coords[j]))
+
+    @staticmethod
+    def _measure_angle(coords, i, j, k):
+        v1 = coords[i] - coords[j]
+        v2 = coords[k] - coords[j]
+        cos_a = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+        return float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
+
+    @staticmethod
+    def _measure_dihedral(coords, i, j, k, l):
+        b1 = coords[j] - coords[i]
+        b2 = coords[k] - coords[j]
+        b3 = coords[l] - coords[k]
+        n1 = np.cross(b1, b2)
+        n2 = np.cross(b2, b3)
+        m1 = np.cross(n1, b2 / np.linalg.norm(b2))
+        return float(np.degrees(np.arctan2(np.dot(m1, n2), np.dot(n1, n2))))
+
+    # ------------------------------------------------------------------
+    # Analytical gradients of internal coordinates w.r.t. Cartesian coords
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _bond_gradient(coords, i, j):
+        """dq/dX for bond length q = |r_i - r_j|.
+        Returns (natoms, 3) sparse gradient array."""
+        natoms = len(coords)
+        grad = np.zeros((natoms, 3))
+        r = coords[i] - coords[j]
+        r_norm = np.linalg.norm(r)
+        if r_norm < 1e-10:
+            return grad
+        unit = r / r_norm
+        grad[i] += unit
+        grad[j] -= unit
+        return grad
+
+    @staticmethod
+    def _angle_gradient(coords, i, j, k):
+        """dq/dX for angle q (degrees) at vertex j.
+        Returns (natoms, 3) sparse gradient array."""
+        natoms = len(coords)
+        grad = np.zeros((natoms, 3))
+        v1 = coords[i] - coords[j]
+        v2 = coords[k] - coords[j]
+        n1 = np.linalg.norm(v1)
+        n2 = np.linalg.norm(v2)
+        if n1 < 1e-10 or n2 < 1e-10:
+            return grad
+
+        cos_a = np.dot(v1, v2) / (n1 * n2)
+        cos_a = np.clip(cos_a, -1.0 + 1e-10, 1.0 - 1e-10)
+        sin_a = np.sqrt(1.0 - cos_a**2)
+        if sin_a < 1e-10:
+            return grad
+
+        # d(angle_rad)/dX, then convert to degrees
+        # Using the standard Wilson B-matrix elements
+        u1 = v1 / n1
+        u2 = v2 / n2
+        # Gradient w.r.t. atom i
+        gi = (cos_a * u1 - u2) / (n1 * sin_a)
+        # Gradient w.r.t. atom k
+        gk = (cos_a * u2 - u1) / (n2 * sin_a)
+        # Gradient w.r.t. vertex j (negative sum)
+        gj = -(gi + gk)
+
+        deg_per_rad = 180.0 / np.pi
+        grad[i] += gi * deg_per_rad
+        grad[j] += gj * deg_per_rad
+        grad[k] += gk * deg_per_rad
+        return grad
+
+    @staticmethod
+    def _dihedral_gradient(coords, i, j, k, l):
+        """dq/dX for dihedral angle q (degrees) i-j-k-l.
+        Returns (natoms, 3) sparse gradient array."""
+        natoms = len(coords)
+        grad = np.zeros((natoms, 3))
+
+        b1 = coords[j] - coords[i]
+        b2 = coords[k] - coords[j]
+        b3 = coords[l] - coords[k]
+
+        n1 = np.cross(b1, b2)
+        n2 = np.cross(b2, b3)
+        n1_norm = np.linalg.norm(n1)
+        n2_norm = np.linalg.norm(n2)
+        b2_norm = np.linalg.norm(b2)
+
+        if n1_norm < 1e-10 or n2_norm < 1e-10 or b2_norm < 1e-10:
+            return grad
+
+        n1_u = n1 / n1_norm
+        n2_u = n2 / n2_norm
+        b2_u = b2 / b2_norm
+
+        # Standard Blondel & Karplus (1996) dihedral gradient
+        gi =  (b2_norm / n1_norm**2) * n1
+        gl = -(b2_norm / n2_norm**2) * n2
+        gj = (-np.dot(b1, b2) / (b2_norm * n1_norm**2)) * n1 \
+             + (np.dot(b3, b2) / (b2_norm * n2_norm**2)) * n2
+        gk = -gj - gi - gl    # translational invariance: sum = 0
+
+        deg_per_rad = 180.0 / np.pi
+        grad[i] += gi * deg_per_rad
+        grad[j] += gj * deg_per_rad
+        grad[k] += gk * deg_per_rad
+        grad[l] += gl * deg_per_rad
+        return grad
+
+    # ------------------------------------------------------------------
+    # Main run method
+    # ------------------------------------------------------------------
+
+    def run(self, current_coords=None, elems=None, Grad=False, PC=False,
+            numcores=None, charge=None, mult=None, label=None,
+            current_MM_coords=None, MMcharges=None, qm_elems=None):
+
+        # Convert coords from Å to Bohr for all internal calculations
+        coords = current_coords * ang2bohr
+        natoms = len(coords)
+
+        energy = 0.0
+        gradient = np.zeros((natoms, 3))
+
+        for r in self.restraints:
+            rtype  = r['type'].lower()
+            idx    = r['indices']
+            k      = float(r.get('force_constant', self.force_constant))
+
+            if rtype in ('bond', 'distance'):
+                # target given in Å — convert to Bohr
+                target = float(r['target']) * ang2bohr
+                q      = self._measure_bond(coords, *idx)      # now in Bohr
+                dq     = q - target                            # Bohr
+                energy += 0.5 * k * dq**2                     # Eh  (k in Eh/Bohr²)
+                if Grad:
+                    dqdX = self._bond_gradient(coords, *idx)   # dimensionless (Bohr/Bohr)
+                    gradient += k * dq * dqdX                  # Eh/Bohr
+
+            elif rtype == 'angle':
+                # target given in degrees — convert to radians
+                target   = float(r['target']) * np.pi / 180.0
+                q        = self._measure_angle(coords, *idx) * np.pi / 180.0  # rad
+                dq       = (q - target + np.pi) % (2*np.pi) - np.pi           # rad
+                energy  += 0.5 * k * dq**2                    # Eh  (k in Eh/rad²)
+                if Grad:
+                    # _angle_gradient currently returns deg/Å — convert to rad/Bohr
+                    dqdX = self._angle_gradient(coords, *idx)  # deg/Bohr (coords in Bohr)
+                    dqdX *= np.pi / 180.0                      # → rad/Bohr
+                    gradient += k * dq * dqdX                  # Eh/Bohr
+
+            elif rtype == 'dihedral':
+                # same as angle
+                target   = float(r['target']) * np.pi / 180.0
+                q        = self._measure_dihedral(coords, *idx) * np.pi / 180.0
+                dq       = (q - target + np.pi) % (2*np.pi) - np.pi
+                energy  += 0.5 * k * dq**2                    # Eh  (k in Eh/rad²)
+                if Grad:
+                    dqdX = self._dihedral_gradient(coords, *idx)  # deg/Bohr
+                    dqdX *= np.pi / 180.0                         # → rad/Bohr
+                    gradient += k * dq * dqdX                     # Eh/Bohr
+
+        self.energy   = energy     # Eh
+        self.gradient = gradient   # Eh/Bohr
+
+        if not Grad:
+            return self.energy
+        else:
+            return self.energy, self.gradient
