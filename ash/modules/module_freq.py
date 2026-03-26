@@ -439,7 +439,8 @@ def NumFreq(fragment=None, theory=None, charge=None, mult=None, npoint=2, displa
                 grad_pos_1d=0
                 #IR
                 #IR intensities if dipoles available
-                if len(displacement_dipole_dictionary) > 0:
+                if any(v is None or (isinstance(v, np.ndarray) and v.size == 0) for v in displacement_dipole_dictionary.values()):
+                    pass
                     if len(displacement_dipole_dictionary[lookup_string_pos]) > 0:
                         disp_dipole = np.array(displacement_dipole_dictionary[lookup_string_pos])
                         dd_deriv = (disp_dipole - original_dipole)/displacement_bohr
